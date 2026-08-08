@@ -1,15 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { GameProvider, useGame } from './state/GameContext';
 import Layout from './components/Layout';
 
+import Landing from './pages/Landing';
 import Auth from './pages/Auth';
+import Dead from './pages/Dead';
 import CreateCharacter from './pages/CreateCharacter';
 import Dashboard from './pages/Dashboard';
 import Crimes from './pages/Crimes';
 import Duty from './pages/Duty';
 import Office from './pages/Office';
 import District from './pages/District';
+import Rackets from './pages/Rackets';
+import Diplomacy from './pages/Diplomacy';
 import Travel from './pages/Travel';
 import Bank from './pages/Bank';
 import Market from './pages/Market';
@@ -29,7 +33,10 @@ import Profile from './pages/Profile';
  * server-side rewrite rules. Hash routing works anywhere without configuration.
  */
 function Shell() {
-  const { booting, authed, me } = useGame();
+  const { booting, authed, me, dead, clearDeath } = useGame();
+  // Signed-out visitors land on the marketing page and only see the form once
+  // they have asked for it.
+  const [authMode, setAuthMode] = useState(null); // null | 'signup' | 'login'
 
   if (booting) {
     return (
@@ -39,7 +46,19 @@ function Shell() {
     );
   }
 
-  if (!authed) return <Auth />;
+  if (!authed) {
+    if (!authMode) {
+      return (
+        <Landing
+          onSignUp={() => setAuthMode('signup')}
+          onSignIn={() => setAuthMode('login')}
+        />
+      );
+    }
+    return <Auth initialMode={authMode} onBack={() => setAuthMode(null)} />;
+  }
+
+  if (dead) return <Dead onNewCharacter={clearDeath} />;
   if (!me) return <CreateCharacter />;
 
   return (
@@ -50,6 +69,8 @@ function Shell() {
         <Route path="/duty" element={<Duty />} />
         <Route path="/office" element={<Office />} />
         <Route path="/district" element={<District />} />
+        <Route path="/rackets" element={<Rackets />} />
+        <Route path="/diplomacy" element={<Diplomacy />} />
         <Route path="/travel" element={<Travel />} />
         <Route path="/bank" element={<Bank />} />
         <Route path="/market" element={<Market />} />

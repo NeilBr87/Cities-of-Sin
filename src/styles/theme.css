@@ -348,6 +348,65 @@ label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: 
   margin-bottom: 26px;
 }
 
+/* --------------------------------------------------------- landing page -- */
+
+.landing { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
+
+.landing-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.hero {
+  text-align: center;
+  padding: 72px 0 56px;
+  background:
+    radial-gradient(900px 420px at 50% 0%, rgba(201, 162, 39, .10), transparent 65%);
+}
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(38px, 7vw, 68px);
+  line-height: 1.03;
+  letter-spacing: .01em;
+  margin-bottom: 18px;
+  color: var(--ink);
+}
+.hero-sub {
+  max-width: 620px;
+  margin: 0 auto 26px;
+  color: var(--ink-dim);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.landing-section { padding: 40px 0; border-top: 1px solid var(--border); }
+.landing-section > h2 {
+  font-size: 13px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--brass);
+  font-family: var(--font-body);
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.landing-cta {
+  text-align: center;
+  padding: 56px 20px;
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  margin-top: 40px;
+}
+.landing-cta h2 { font-size: 28px; }
+
+.landing-foot { text-align: center; padding: 28px 0 0; }
+
 /* ------------------------------------------------------------ responsive -- */
 
 @media (max-width: 860px) {

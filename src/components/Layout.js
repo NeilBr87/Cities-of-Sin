@@ -40,6 +40,7 @@ export default function Layout({ children }) {
         {me.path === PATHS.POLICE && <Item to="/duty">Duty</Item>}
         {me.path === PATHS.POLITICIAN && <Item to="/office">Office</Item>}
         <Item to="/district">District</Item>
+        {me.path === PATHS.MAFIA && <Item to="/rackets">Rackets</Item>}
         <Item to="/travel">Travel</Item>
 
         <div className="nav-group-label">Money</div>
@@ -50,6 +51,12 @@ export default function Layout({ children }) {
         <div className="nav-group-label">Power</div>
         <Item to="/families">Families</Item>
         {me.familyId && <Item to="/family">My Family</Item>}
+        {me.familyId && (
+          <Item to="/diplomacy">
+            Diplomacy
+            {me.inboxCount > 0 && <span className="badge-count">{me.inboxCount}</span>}
+          </Item>
+        )}
         <Item to="/politics">Politics</Item>
         <Item to="/police">Police</Item>
 

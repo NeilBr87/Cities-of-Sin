@@ -47,6 +47,25 @@ export const bank = {
   summary: () => get('/bank'),
   launder: (amount, frontId) => post('/bank/launder', { amount, frontId }),
   transfer: (toPlayerId, amount, kind) => post('/bank/transfer', { toPlayerId, amount, kind }),
+  // The Quantum Bank belongs to the account, not the character. It is the only
+  // thing that survives assassination.
+  quantumDeposit: (amount) => post('/bank/quantum/deposit', { amount }),
+  quantumWithdraw: (amount) => post('/bank/quantum/withdraw', { amount }),
+};
+
+export const rackets = {
+  ofDistrict: (districtId) => get(`/districts/${districtId}/rackets`),
+  mine: () => get('/me/rackets'),
+  buy: (racketId) => post('/rackets/buy', { racketId }),
+  takeover: (racketId) => post('/rackets/takeover', { racketId }),
+};
+
+export const diplomacy = {
+  overview: () => get('/diplomacy'),
+  propose: (familyId, state) => post('/diplomacy/propose', { familyId, state }),
+  respond: (messageId, accept) => post('/diplomacy/respond', { messageId, accept }),
+  end: (familyId) => post('/diplomacy/end', { familyId }),
+  offerPeace: (familyId, money, racketIds) => post('/diplomacy/peace', { familyId, money, racketIds }),
 };
 
 export const market = {
@@ -75,11 +94,12 @@ export const families = {
   leave: () => post('/families/leave', {}),
   members: (id) => get(`/families/${id}/members`),
   makeMember: (playerId) => post('/families/make', { playerId }),
-  promote: (playerId, rankId) => post('/families/promote', { playerId, rankId }),
+  promote: (playerId, rankId, districtId) => post('/families/promote', { playerId, rankId, districtId }),
   demote: (playerId, rankId) => post('/families/demote', { playerId, rankId }),
   kick: (playerId) => post('/families/kick', { playerId }),
   voteOutBoss: () => post('/families/vote-boss', {}),
   treasury: (id) => get(`/families/${id}/treasury`),
+  expand: (cityId) => post('/families/expand', { cityId }),
 };
 
 export const crews = {
@@ -104,7 +124,10 @@ export const hits = {
 
 export const combat = {
   attack: (targetPlayerId) => post('/combat/attack', { targetPlayerId }),
+  // Only available against a family you are at war with, and only if you are made.
+  assassinate: (targetPlayerId) => post('/combat/assassinate', { targetPlayerId }),
   log: () => get('/combat/log'),
+  graves: () => get('/graves'),
 };
 
 export const politics = {
@@ -161,7 +184,6 @@ export const chat = {
 export const territory = {
   district: (districtId) => get(`/districts/${districtId}`),
   city: (cityId) => get(`/cities/${cityId}`),
-  dominance: (districtId) => get(`/districts/${districtId}/dominance`),
 };
 
 /**
@@ -176,7 +198,8 @@ export const dev = {
 
 const api = {
   auth, player, crimes, bank, market, property, families, crews,
-  hits, combat, politics, police, prison, chat, territory, dev,
+  hits, combat, politics, police, prison, chat, territory,
+  rackets, diplomacy, dev,
 };
 
 export default api;

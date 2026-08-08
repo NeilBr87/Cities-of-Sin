@@ -39,12 +39,46 @@ export const CONFIG = {
   KICK_UP_SOURCE: ['dirty', 'clean'],
 
   // ---- Families ----
-  MAX_FAMILIES: 5,
+  // Five families PER CITY, not five in the world. Four cities means twenty
+  // seats, and a family that owns a city outright still has three rivals.
+  MAX_FAMILIES_PER_CITY: 5,
   FAMILY_FOUNDING_COST: 2500000, // clean money, first come first served
   FAMILY_NAME_MAX: 32,
   BOSS_VOTE_OUT_QUORUM: 0.5, // strict majority of family members demotes the boss to soldier
   BOSS_VOTE_COOLDOWN_DAYS: 7,
   MADE_MIN_RESPECT: 500, // an associate needs this much respect before a boss can make them
+  // A family starts in its home city and buys its way into the others.
+  FAMILY_EXPANSION_COST: 1200000,
+  // One crew per family per district. A family that wants more crews has to
+  // spread out, which is what makes territory a map problem and not a number.
+  MAX_CREWS_PER_DISTRICT: 1,
+
+  // ---- Rackets ----
+  RACKET_TAKEOVER_NERVE: 6,
+  RACKET_TAKEOVER_COOLDOWN_SEC: 3600,
+  RACKET_TAKEOVER_HEAT: 14,
+  RACKET_FAIL_DAMAGE: 35,
+  // Held for this long after a takeover, a racket cannot be taken again — it
+  // stops two crews ping-ponging the same racket all evening.
+  RACKET_GRACE_SEC: 1800,
+
+  // ---- Diplomacy ----
+  // A pact or alliance cannot be torn up the instant it is signed.
+  DIPLOMACY_MIN_DURATION_SEC: 3600,
+  PEACE_OFFER_EXPIRY_HOURS: 24,
+
+  // ---- Death and the Quantum Bank ----
+  // Assassination is permanent. The character is gone and the player starts
+  // again — possibly on a completely different path.
+  DEATH_IS_PERMANENT: true,
+  // The Quantum Bank is the one thing that survives you. It belongs to the
+  // account, not the character. The deposit fee is what stops it being a
+  // free insurance policy against every risk in the game.
+  QUANTUM_DEPOSIT_FEE: 0.10,
+  QUANTUM_MIN_DEPOSIT: 1000,
+  QUANTUM_INTEREST_WEEKLY: 0, // it is a vault, not an investment
+  // A new character inherits nothing but what they withdraw from the vault.
+  RESPAWN_STARTING_CLEAN: 2000,
 
   // ---- Parties ----
   MAX_PARTIES: 5,
@@ -61,9 +95,9 @@ export const CONFIG = {
   // ---- Assassination ----
   ASSASSINATION_CONTRACT_MIN: 50000,
   ASSASSINATION_COOLDOWN_HOURS: 12,
-  DEATH_RESPECT_LOSS: 0.35,
-  DEATH_DIRTY_LOSS: 1.0, // dirty money on you is lost; banked clean money survives
   HOSPITAL_MINUTES: 30,
+  // A non-lethal beating still costs the loser a quarter of the dirty money on them.
+  MUGGING_TAKE: 0.25,
 
   // ---- Police ----
   ARREST_BASE_CHANCE: 0.35,
@@ -83,12 +117,37 @@ export const CONFIG = {
   LAUNDER_FLOOR_RATE: 0.6, // worst rate available without a front
   LAUNDER_NO_FRONT_CAP: 5000, // weekly cap on washing without owning a front
 
-  // ---- Territory ----
-  DOMINANCE_DECAY_PER_DAY: 4,
-  DOMINANCE_PER_CRIME: 1,
-  DOMINANCE_PER_TIER3: 12,
-  DOMINANCE_CAPTURE_THRESHOLD: 60, // dominance needed to hold a district outright
 };
+
+/**
+ * Who controls a district: whoever holds the most rackets in it. A tie leaves
+ * the district contested and under nobody's control, which is a state worth
+ * having — it is what a stalemate looks like on the map.
+ */
+export function districtController(rackets = []) {
+  const counts = new Map();
+  rackets.forEach((r) => {
+    if (!r.ownerFamilyId) return;
+    const key = String(r.ownerFamilyId);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  if (counts.size === 0) return { familyId: null, count: 0, contested: false };
+
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const [topId, topCount] = sorted[0];
+  const contested = sorted.length > 1 && sorted[1][1] === topCount;
+  return {
+    familyId: contested ? null : topId,
+    count: topCount,
+    contested,
+    standings: sorted.map(([familyId, count]) => ({ familyId, count })),
+  };
+}
+
+/** What lands in the vault after the deposit fee. */
+export function quantumDepositNet(amount) {
+  return Math.round(amount * (1 - CONFIG.QUANTUM_DEPOSIT_FEE));
+}
 
 /** The chance a crime succeeds, all modifiers applied. Returns 0.05 – 0.95. */
 export function crimeSuccessChance(crime, player, district, opts = {}) {

@@ -13,8 +13,8 @@ const KEY = 'cos.db.v1';
 export const TABLES = [
   'users', 'players', 'families', 'crews', 'parties', 'departments',
   'properties', 'fronts', 'inventory', 'elections', 'votes', 'offices',
-  'laws', 'contracts', 'hits', 'cases', 'messages', 'logs', 'dominance',
-  'cooldowns', 'directives',
+  'laws', 'contracts', 'hits', 'cases', 'messages', 'logs', 'rackets',
+  'cooldowns', 'directives', 'diplomacy', 'inbox', 'expansions', 'graves',
 ];
 
 let db = null;

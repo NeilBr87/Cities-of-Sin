@@ -67,6 +67,7 @@ Xano may create this for you when you add authentication. If so, extend it.
 | `username` | text | **Unique index.** Min 3 chars |
 | `password` | password | Xano hashes this automatically. Never store plaintext |
 | `email` | email | Nullable |
+| `quantum` | integer | Default 0. **The Quantum Bank.** It lives on the user, not the player, because that is precisely what makes it survive death |
 
 ### 2.2 `players`
 The heart of the schema. One row per character; one character per user.
@@ -102,10 +103,16 @@ The heart of the schema. One row per character; one character per user.
 | `inside_property_id` | table ref → properties | null | |
 | `laundered_this_week` | integer | `0` | |
 | `is_npc` | boolean | `false` | |
+| `dead_at` | timestamp | null | **Set once, never cleared.** A dead row is a headstone |
 | `last_seen` | timestamp | now | |
 
-**Indexes:** `user_id` (unique), `district_id`, `city_id`, `family_id`, `heat`,
-`jail_until`.
+**Indexes:** `user_id` (NOT unique — see below), `district_id`, `city_id`, `family_id`,
+`heat`, `jail_until`, `dead_at`.
+
+> **`user_id` must not be unique.** Death is permanent, so a user accumulates one player
+> row per life. The rule the server enforces is *at most one row per user with
+> `dead_at IS NULL`* — a partial/filtered unique index if your database supports one,
+> and a precondition in `POST /me/character` regardless.
 
 ### 2.3 `families`
 | Field | Type | Notes |
@@ -114,8 +121,8 @@ The heart of the schema. One row per character; one character per user.
 | `motto` | text | |
 | `logo` | text | A character or emoji |
 | `colour` | text | Hex |
-| `city_id` | text | |
-| `boss_id` | table ref → players | Nullable — a family can be headless after a vote |
+| `city_id` | text | The **home** city. Five families per city, counted on this column |
+| `boss_id` | table ref → players | Nullable — a family can be headless after a vote or a death |
 | `treasury_clean` | integer | |
 | `treasury_dirty` | integer | |
 | `respect` | integer | |
@@ -128,6 +135,16 @@ The heart of the schema. One row per character; one character per user.
 | `family_id` | table ref → families | |
 | `city_id` | text | |
 | `district_id` | text | |
+
+### 2.4a `expansions`
+A family operates in its home city plus every city it has bought into.
+
+| Field | Type | Notes |
+|---|---|---|
+| `family_id` | table ref → families | |
+| `city_id` | text | |
+
+**Unique compound index on `(family_id, city_id)`.**
 
 ### 2.5 `parties`
 | Field | Type |
@@ -272,14 +289,61 @@ exactly that pair and it will be your hottest read.
 | `meta` | json |
 | `at` | timestamp |
 
-### 2.18 `dominance`
+### 2.18 `rackets`
+Territory. One row per racket **that has been touched** — rows are created lazily the
+first time anybody looks at a racket, so you never have to seed 96 of them.
+
 | Field | Type | Notes |
 |---|---|---|
-| `district_id` | text | |
-| `family_id` | table ref → families | |
-| `points` | integer | 0–100 |
+| `racket_id` | text | **Unique index.** Matches an id in `src/game/rackets.js` |
+| `district_id` | text | Index this |
+| `owner_family_id` | table ref → families (nullable) | Null means unclaimed |
+| `owner_crew_id` | table ref → crews (nullable) | Null means the family holds it directly |
+| `taken_at` | timestamp (nullable) | Drives the 30-minute grace window |
 
-**Unique compound index on `(district_id, family_id)`.**
+District control is **computed, never stored**: count rows per `owner_family_id` in the
+district, highest count wins, a tie means contested and nobody controls it.
+
+### 2.18a `diplomacy`
+One row per *pair* of families. Neutral is the **absence** of a row.
+
+| Field | Type | Notes |
+|---|---|---|
+| `family_a` | table ref → families | Always the **lower** id of the pair |
+| `family_b` | table ref → families | Always the **higher** id |
+| `state` | enum | `nap` `war` `allied` |
+| `since` | timestamp | Enforces the one-hour minimum before it can be ended |
+
+**Unique compound index on `(family_a, family_b)`.** Normalising the pair order is what
+makes that index work — without it you get two rows for the same relationship and the
+two families disagree about whether they are at war.
+
+### 2.18b `inbox`
+Boss-to-boss messages: proposals, declarations, peace terms and notices.
+
+| Field | Type | Notes |
+|---|---|---|
+| `to_family_id` | table ref → families | Index this |
+| `from_family_id` | table ref → families | |
+| `from_player_id` | table ref → players | |
+| `type` | enum | `proposal` `declaration` `peace` `notice` |
+| `payload` | json | `{state}` for proposals, `{money, racketIds}` for peace |
+| `status` | enum | `pending` `accepted` `declined` |
+
+### 2.18c `graves`
+The permanent record of a killed character. Read-only after insert.
+
+| Field | Type |
+|---|---|
+| `player_id` | table ref → players |
+| `username` | text |
+| `name` | text |
+| `rank_id` | text |
+| `family_id` | table ref → families (nullable) |
+| `killed_by` | table ref → players (nullable) |
+| `killed_by_name` | text |
+| `cause` | enum (`contract`, `war`) |
+| `respect` | integer |
 
 ### 2.19 `cooldowns`
 | Field | Type | Notes |
@@ -309,8 +373,8 @@ Used for boss no-confidence votes.
 | `authority` | integer | 3 president, 2 mayor, 1 chief |
 | `set_by` | table ref → players | |
 
-**Verify §2:** 21 tables exist, every index listed above is present, and
-`players.user_id` is unique.
+**Verify §2:** 25 tables exist, every index listed above is present, and
+`players.user_id` is **not** unique (see the note in §2.2).
 
 ---
 
@@ -368,11 +432,16 @@ client drift apart.
 Input: none (reads the auth token).
 ```
 1. Get authenticated user id
-2. Get Record from players where user_id = auth id
-3. Precondition: exists                       → 409 "No character yet."
+2. Get Record from players where user_id = auth id AND dead_at IS NULL
+3. If none, check whether a dead row exists for this user:
+     dead row exists → 410 "Your character is dead. Create a new one."
+     otherwise       → 409 "No character yet."
 4. Call fn_tick_player(player)                 (see 4.2)
 5. Return the refreshed player record
 ```
+> **410 is load-bearing.** The frontend routes 409 to character creation and 410 to the
+> death screen. Returning 409 for a dead character silently skips the death screen and
+> the player never learns what happened to them.
 
 ### 4.2 `fn_tick_player`
 Input: `player`. This is **lazy regeneration** — nothing is on a timer, everything
@@ -443,9 +512,44 @@ return national if it exists, else city, else { sentence_multiplier: 1, legal: f
 > Federal beats city. That is the President's whole leverage over Mayors — build it as
 > a lookup precedence, not a data migration.
 
-### 4.9 `fn_add_dominance`
-Input: `family_id`, `district_id`, `points`. Upsert `dominance`, clamp to 100. No-op
-when `family_id` is null.
+### 4.9 `fn_racket_row`
+Input: `racket_id`. Get the row; if it does not exist, create it unclaimed from the
+static definition. Lazy creation means no seeding step and no migration when you add
+rackets later.
+
+### 4.10 `fn_diplo_state`
+Input: `family_a`, `family_b`. Normalise so the lower id is first, look up `diplomacy`,
+return `state` or `neutral`. **Every attack, mugging and killing goes through this.**
+
+### 4.11 `fn_may_attack`
+Input: two players. Returns true unless both are in families bound by a `nap`.
+Same family, or either player unaffiliated, is always true.
+
+### 4.12 `fn_war_targets`
+Input: `family_id`. Returns the family it is at war with, **plus** any war inherited
+from its ally. Allies fight each other's wars — that inheritance is the entire point of
+the alliance state.
+
+### 4.13 `fn_family_operates_in`
+Input: `family_id`, `city_id`. True when it is the family's home city, or an
+`expansions` row exists. Gate crew creation and racket purchases on this.
+
+### 4.14 `fn_kill_player`
+Input: `target`, `killer`, `cause`. **The most consequential function in the build.**
+```
+1. If the target is a boss:
+     heir = highest-respect living captain in the family
+     if heir: family.boss_id = heir; heir.rank = 'boss'; heir.crew_id = null
+     else:    family.boss_id = null
+2. If the target captains a crew: crew.captain_id = null (the crew survives, leaderless)
+3. Insert a graves row
+4. Edit the player: dead_at = now, clean = 0, dirty = 0, health = 0, heat = 0,
+   family_id/crew_id/party_id/department_id = null, inside_property_id = null,
+   jail_until = null
+```
+> **Do not touch `users.quantum` here.** That omission *is* the Quantum Bank feature.
+> Also do not reassign the family's rackets — territory belongs to the family, not to
+> the man who was holding it.
 
 **Verify §4:** each function runs standalone in Xano's **Run & Debug** without error.
 
@@ -531,7 +635,6 @@ order and do not reorder:
 11. If success:
       payout = crime.payout × district.wealth × skill bonus × random(0.85,1.15)
       dirty += payout; respect += 2/12/60 by tier; skills.crime += 0.3 or 1
-      fn_add_dominance(family, district, tier === 3 ? 12 : 1)
       family.respect += respect
 12. If failed:
       caught = random() < 0.35 + district.policing × 0.08
@@ -556,9 +659,15 @@ order and do not reorder:
 
 | Method | Path | Rules |
 |---|---|---|
-| GET | `/bank` | Balances, owned fronts with remaining capacity, wash capacity |
+| GET | `/bank` | Balances, owned fronts with remaining capacity, wash capacity, and `users.quantum` |
 | POST | `/bank/launder` | With a front: check `weekly_capacity - used_this_week`, then increment `used_this_week`. Without: cap at $5,000/week via `players.laundered_this_week`. Output = `amount × rate` |
 | POST | `/bank/transfer` | Precondition: target exists, amount > 0, not self. `fn_spend` then credit |
+| POST | `/bank/quantum/deposit` | Min $1,000. `fn_spend(amount, clean)`, then credit `users.quantum` with **90%** of it. The 10% is burned, not banked |
+| POST | `/bank/quantum/withdraw` | No fee. Debit `users.quantum`, credit player clean |
+
+> Quantum reads and writes target **`users`**, never `players`. If you find yourself
+> writing to a player row in these two endpoints, the vault will die with the character
+> and the feature is gone.
 
 ### 5.5 Market and property
 
@@ -582,24 +691,28 @@ order and do not reorder:
 | GET | `/families/{id}/members` | Public, sorted by rank level descending |
 | GET | `/families/{id}/crews` | Public |
 | GET | `/families/{id}/treasury` | **Members only** → 403 "Family business." |
-| POST | `/families` | path=mafia, no current family, **count < 5**, name unique, `fn_spend(2,500,000, clean)`. Founder becomes `boss` |
+| POST | `/families` | path=mafia, no current family, **fewer than 5 families whose `city_id` is the chosen city**, name unique, `fn_spend(2,500,000, clean)`. Founder becomes `boss` |
+| POST | `/families/expand` | Boss only. $1,200,000 from `treasury_clean`, insert an `expansions` row. Required before the family can plant crews or take rackets in that city |
 | PATCH | `/families/{id}` | Boss only |
 | DELETE | `/families/{id}` | Boss only. Resets every member to `hoodlum` and deletes all crews |
 | POST | `/families/{id}/join` | path=mafia, no current family. Joins as `associate` |
 | POST | `/families/leave` | **A boss cannot leave** → 409. Disband or be voted out |
 | POST | `/families/make` | Boss only. Target must be `associate` **with ≥500 respect** |
-| POST | `/families/promote` | Boss only. `soldier` → `captain`, **and create their crew named `"<surname> Crew"`** |
+| POST | `/families/promote` | Boss only. `soldier` → `captain`, **and create their crew named `"<surname> Crew"`** in a chosen `district_id`. Preconditions: `fn_family_operates_in(family, district.city)` and **no existing crew for this family in that district** |
 | POST | `/families/demote` | Boss only. Demoting a captain **deletes their crew and orphans its members** |
 | POST | `/families/kick` | Boss only. Same crew cleanup as demote |
 | POST | `/families/vote-boss` | See below |
 
-**The five-family cap (`POST /families`) is a race condition.** Two players founding
-simultaneously can both read "4 families" and both insert. Xano does not give you a
-transaction here, so use a **unique index on `families.name`** plus this pattern: insert
-first, then re-count, and if the count now exceeds 5 delete your own row and refund.
-Alternatively keep a single-row `settings` table with a `family_count` column and use an
-atomic increment as the lock. The unique-name index at minimum stops the duplicate-name
-case.
+**The five-per-city cap (`POST /families`) is a race condition.** Two players founding
+in the same city simultaneously can both read "4 families" and both insert. Xano does not
+give you a transaction here, so use a **unique index on `families.name`** plus this
+pattern: insert first, then re-count that city, and if the count now exceeds 5 delete
+your own row and refund. Alternatively keep a `city_family_count` row per city and use
+an atomic increment as the lock. The unique-name index at minimum stops the
+duplicate-name case.
+
+The same race applies to **one crew per district** — re-count after insert and roll back
+if a second crew appeared.
 
 **`POST /families/vote-boss`**
 ```
@@ -633,9 +746,91 @@ case.
 
 **Hit resolution** — attacker and defender each roll `combatScore` (see
 `src/game/economy.js`); higher wins. The defender adds their property's `safety × 0.8`
-**only if `inside_property_id` is set.** On success the target loses all dirty money,
-35% of respect, drops to 10 health, and is forced out of their property; the shooter
-takes the bounty and 250 respect.
+**only if `inside_property_id` is set.** On success call **`fn_kill_player`** — the
+target is dead permanently — and pay the shooter the bounty plus 250 respect. On failure
+the shooter takes 45 damage and the contract goes back to needing a shooter.
+
+---
+
+### 5.7a Rackets
+
+| Method | Path | Rule |
+|---|---|---|
+| GET | `/districts/{id}/rackets` | Every racket in the district with owner, income, price, defender count, computed takeover odds and grace-window remaining |
+| GET | `/me/rackets` | Everything the player's family holds, across all cities |
+| POST | `/rackets/buy` | Must be **made**, in a family, and the family must operate in that city. Racket must be unclaimed. `fn_spend(price, clean)` |
+| POST | `/rackets/takeover` | See below |
+
+**`POST /rackets/takeover`**
+```
+ 1. fn_current_player; not in jail; in a family; rank >= soldier
+ 2. Precondition: racket is owned, and NOT by your own family     → 409
+ 3. Precondition: you are standing in that district               → 409
+ 4. Precondition: taken_at is null or older than 30 minutes       → 429
+ 5. fn_cooldown_check('racket:takeover') → if > 0, 429
+ 6. Precondition: nerve >= 6                                      → 403
+ 7. defenders = members of the owning crew, or of the owning family if no crew
+ 8. chance = takeoverChance() from src/game/rackets.js
+ 9. success = random() < chance                    ← server-side ONLY
+10. On success: owner_family_id = yours, owner_crew_id = your crew, taken_at = now,
+                +120 respect, +2 combat skill
+    On failure: −35 health
+11. Always: −6 nerve, +14 heat, set the cooldown
+```
+> The **−18% solo penalty** in that formula is the whole design of the crew system.
+> Do not soften it: without it, crews are decoration and one rich player takes the map.
+
+---
+
+### 5.7b Diplomacy
+
+| Method | Path | Rule |
+|---|---|---|
+| GET | `/diplomacy` | The whole board: current relations, inherited war targets, every other family with its state, plus the boss's pending inbox and sent offers |
+| POST | `/diplomacy/propose` | **Boss only.** See below |
+| POST | `/diplomacy/respond` | **Boss only**, and only for messages addressed to their family. Accept/decline |
+| POST | `/diplomacy/end` | **Boss only.** Pacts and alliances only — **a war cannot be ended this way** → 409. Minimum one hour since `since` |
+| POST | `/diplomacy/peace` | **Boss only**, must be at war with the target. Sends `{money, racketIds}` as a `peace` inbox message |
+
+**`POST /diplomacy/propose`**
+```
+1. Boss only; target family exists and is not your own
+2. Precondition: not already in that state
+3. If the state is exclusive (all three are):
+     you must not already hold it with anyone      → 409
+     they must not already hold it with anyone     → 409
+4. Precondition: not going to war while bound by a pact with them → 409
+5. If state = war:
+     set it IMMEDIATELY and send a 'declaration' message
+     (war is declared, not requested — nobody has to agree to be shot at)
+   Otherwise:
+     send a 'proposal' message and change nothing yet
+```
+
+**Accepting a `peace` message** transfers `money` from the offering family's
+`treasury_clean` and reassigns every listed racket, then sets the pair back to
+**neutral**. Re-validate both — the treasury may have been spent and the rackets may
+have been lost since the offer was made.
+
+---
+
+### 5.7c Death
+
+| Method | Path | Rule |
+|---|---|---|
+| POST | `/combat/assassinate` | Wartime killing. See below |
+| GET | `/graves` | Public. The last 50 killed characters |
+
+**`POST /combat/assassinate`**
+```
+1. Both players in the same district; target alive; not yourself
+2. Precondition: YOU are rank >= soldier                     → 403
+3. Precondition: TARGET is rank >= soldier                   → 403
+   (killing an unmade man is a contract job, not a war job)
+4. Precondition: fn_war_targets(your family) includes theirs → 403
+5. 12-hour cooldown per killer
+6. Resolve exactly as a contract hit; on success fn_kill_player(target, you, 'war')
+```
 
 ### 5.8 Elections and offices
 
@@ -731,11 +926,13 @@ path=police, and `prison:<jailCity>` if currently jailed.
 
 ### 5.13 Territory
 
-| Method | Path |
-|---|---|
-| GET | `/districts/{id}` | Wealth, policing, councilman, department, dominance table, players present, open case count |
-| GET | `/districts/{id}/dominance` | Dominance rows sorted descending |
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/districts/{id}` | Wealth, policing, councilman, department, **computed racket control**, the racket list, crews planted here, living players present, open case count |
 | GET | `/cities/{id}` | Districts, mayor, chief, population |
+
+Exclude players with `dead_at` set from `playersHere` and from every listing. A corpse
+should not be standing on a street corner.
 
 **Verify §5:** hit `/me` and `/crimes` from Xano's Run & Debug with a real token and
 confirm the JSON shape matches what `src/api/index.js` expects.
@@ -744,14 +941,15 @@ confirm the JSON shape matches what `src/api/index.js` expects.
 
 ## 6. Where the game data lives
 
-Crimes, districts, items and ranks are **static definitions in the frontend**
-(`src/game/`). Xano needs the same numbers to enforce rules server-side. You have two
-options — pick one and be consistent:
+Crimes, districts, items, ranks and **rackets** are **static definitions in the
+frontend** (`src/game/`). Xano needs the same numbers to enforce rules server-side. You
+have two options — pick one and be consistent:
 
 **Option A — Environment Variables (recommended to start).** Paste the contents of
-`crimes.js`, `world.js`, `items.js` and `ranks.js` as JSON into four Xano environment
-variables (`GAME_CRIMES`, `GAME_DISTRICTS`, `GAME_ITEMS`, `GAME_RANKS`). Endpoints
-parse and filter them. Zero extra tables, and balance changes are a one-field edit.
+`crimes.js`, `world.js`, `items.js`, `ranks.js` and `rackets.js` as JSON into five Xano
+environment variables (`GAME_CRIMES`, `GAME_DISTRICTS`, `GAME_ITEMS`, `GAME_RANKS`,
+`GAME_RACKETS`). Endpoints parse and filter them. Zero extra tables, and balance changes
+are a one-field edit.
 
 **Option B — Reference tables.** Create `def_crimes`, `def_districts`, `def_items`,
 `def_ranks` tables and seed them. Better if you eventually want to tune balance from an
@@ -791,8 +989,14 @@ and it is the order the mock implements in `POST /dev/run-weekly`:
 
 6. INTEREST — clean += clean × 1%.
 
-7. DOMINANCE DECAY — every dominance row loses 28 points (4/day × 7).
+7. RACKET INCOME — for every racket with an owner:
+     income = archetype income × district wealth
+     if a crew holds it and its captain is alive → pay the CAPTAIN, dirty
+     otherwise                                    → pay the family TREASURY, dirty
 ```
+> Racket income is paid **dirty**, which is deliberate: a family that takes a lot of
+> ground suddenly has a laundering problem, and laundering capacity becomes the next
+> thing worth fighting over.
 
 > **Step 1 is not a style preference.** If you compute each player's 10% as you go,
 > a soldier who pays their captain early makes the captain's own kick-up larger, and
@@ -818,6 +1022,10 @@ A safety net for players who never log in: `heat = max(0, heat - 3)` for anyone 
 ### 7.4 `expire_contracts` — hourly
 Delete or flag `contracts` past `expires_at`. This is what makes tier-3 crimes lock
 again and forces families back to the negotiating table.
+
+### 7.5 `expire_peace_offers` — hourly
+Mark `inbox` rows of type `peace` older than 24 hours as `declined`. Terms should not sit
+on a desk indefinitely while the war continues around them.
 
 **Verify §7:** run `weekly_economy` manually once against seed data and confirm a
 captain's balance rises by roughly 10% of their crew's combined holdings.
@@ -867,13 +1075,17 @@ families, cops and a sitting mayor.
 
 Create a one-off Xano task, run it once, then disable it:
 
-- **4 families** (leaving one of the five slots open — a real player should be able to
-  found one on day one)
+- **12 families** — three per city, leaving two of the five seats open in every city so
+  a real player can always found one somewhere on day one
 - **3 parties**
-- **18 departments**, one per district
-- **~60 NPC players**: bosses, captains with crews, soldiers, associates, loose
-  hoodlums, 3 chiefs, 18 lieutenants, 36 officers, 18 councilmen, 3 mayors, 1 president
-- **22 offices** (18 district + 3 city + 1 nation) with the NPC holders seated
+- **24 departments**, one per district
+- **~180 NPC players**: bosses, captains with crews (one crew per district), soldiers,
+  associates, loose hoodlums, 4 chiefs, 24 lieutenants, 48 officers, 24 councilmen,
+  4 mayors, 1 president
+- **29 offices** (24 district + 4 city + 1 nation) with the NPC holders seated
+- **Rackets**: leave roughly a third unclaimed so there is always something to buy into
+- **A little diplomacy already in play** — one war, one pact, one alliance — so the board
+  is not blank when the first real player arrives
 - **5 law rows** at `scope='nation'`, multiplier 1.0, all illegal except gambling
 - **2 open contracts** so tier-3 work is reachable immediately
 - **A handful of chat messages** in `global` and the city channels
@@ -906,6 +1118,18 @@ adapter already does.
 - [ ] **Sentences are clamped to 24 hours** no matter what multiplier a President sets.
       A hostile President should not be able to bench the entire mafia for a week.
 - [ ] **`/leaderboard` never exposes a money metric.**
+- [ ] **`fn_kill_player` never touches `users.quantum`.** Test it: deposit, die, respawn,
+      and confirm the balance is still there. This is the one feature players will be
+      angriest about if it breaks.
+- [ ] **A dead character cannot act.** Every mutating endpoint rejects a player with
+      `dead_at` set — `fn_current_player` returning 410 handles this centrally, so do not
+      bypass it anywhere.
+- [ ] **Attack and kill endpoints check diplomacy server-side.** The UI hides the
+      Assassinate button when you are not at war; the endpoint must reject it anyway.
+- [ ] **Diplomacy pairs are normalised** (lower family id first) on every read and write,
+      or two families will disagree about whether they are at war.
+- [ ] **Racket takeover rolls on the server** and re-reads ownership inside the same
+      request. A client that sends `success: true` must be ignored.
 - [ ] Rate-limit `/crimes/commit`, `/police/action` and `/chat/*` at the API group
       level. The per-crime cooldowns are game balance, not abuse protection.
 
@@ -921,12 +1145,16 @@ soonest:
 3. `GET /me` and `POST /me/character` — **the frontend now loads and shows a dashboard**
 4. Remaining tables from §2
 5. `GET /crimes` and `POST /crimes/commit` — **the game is now playable**
-6. Bank, market, property
-7. Families, crews, hits
-8. Politics and police
-9. Prison and chat
-10. §7 background tasks
-11. §10 seed, §11 security pass
+6. Bank (including the Quantum Bank), market, property
+7. Families, crews, expansion
+8. **Rackets** — `fn_racket_row`, buy, takeover, district control
+9. Hits, `fn_kill_player`, `/combat/assassinate`, `/graves`
+10. **Diplomacy** — `fn_diplo_state`, `fn_may_attack`, `fn_war_targets`, the inbox
+11. Politics and police
+12. Prison and chat
+13. §7 background tasks
+14. §10 seed, §11 security pass
 
-Steps 1–5 are roughly half the work and produce a game you can actually play. Everything
-after that is depth.
+Steps 1–5 are roughly a third of the work and produce a game you can actually play.
+Steps 8–10 are what make it a *multiplayer* game rather than a solo grind — if you have
+to cut scope, cut politics before you cut rackets.

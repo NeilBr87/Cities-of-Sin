@@ -1,6 +1,6 @@
 # Cities of Sin
 
-A multiplayer browser RPG. Three cities, three ways up, and one economy all three fight
+A multiplayer browser RPG. Four cities, three ways up, and one economy all three fight
 over.
 
 You arrive as nobody. You pick a life — **mafia**, **politician**, or **police** — and
@@ -8,7 +8,11 @@ from there the game is about the other two. The mafia cannot reach its biggest s
 without a politician awarding contracts. Politicians cannot fund campaigns without
 somebody dirty. Police get paid either way, by the city or by whoever is buying.
 
-There are only ever **five families**, and somebody already has four of them.
+Every district is a list of **rackets**, and whoever holds the most of them owns the
+place. There are **five family seats per city** and never a sixth.
+
+And death is permanent. If you are assassinated, that character is finished — you build
+a new one, and the only thing you keep is whatever you put in the **Quantum Bank**.
 
 ---
 
@@ -42,8 +46,8 @@ Nothing else changes. The mock and the real backend implement the same routes, a
 
 | Document | What is in it |
 |---|---|
-| **[docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)** | The full ruleset: paths, ranks, crime tiers, the money model, kick-ups, elections, prison. Also lists what is deliberately not built yet |
-| **[docs/XANO_SETUP.md](docs/XANO_SETUP.md)** | Step-by-step backend build: 21 table schemas, every endpoint's function stack, background tasks, realtime, and a security checklist. Written to be handed to a browser agent |
+| **[docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)** | The full ruleset: paths, ranks, crime tiers, rackets and territory, diplomacy, the money model, kick-ups, elections, prison, permadeath. Also lists what is deliberately not built yet |
+| **[docs/XANO_SETUP.md](docs/XANO_SETUP.md)** | Step-by-step backend build: 25 table schemas, every endpoint's function stack, background tasks, realtime, and a security checklist. Written to be handed to a browser agent |
 
 ---
 
@@ -53,9 +57,11 @@ Nothing else changes. The mock and the real backend implement the same routes, a
 src/
   game/          Static game data and every formula. No React, no network.
     era.js         The setting — 1979 / 1994 / 2026, switchable
-    world.js       3 cities, 18 districts, travel costs
+    world.js       4 cities, 24 districts, travel costs
     ranks.js       The three paths and their ranks
     crimes.js      3 tiers of crime + police actions
+    rackets.js     96 regionalised rackets and the takeover formula
+    diplomacy.js   Neutral / pact / war / allies and what each permits
     items.js       Guns, armour, vehicles, property, laundering fronts
     economy.js     Every tunable number and every outcome formula
   api/
@@ -84,12 +90,23 @@ disagree, the client is the bug.
 modern, so it is one switch. It changes surveillance, forensics, whether wire transfers
 exist, and which items are on sale.
 
+**War is declared, not requested.** Pacts and alliances need the other boss to agree.
+War does not — the other boss is notified rather than asked, because a war you need
+permission to start is not a war. One flag in `diplomacy.js` reverses this.
+
+**Solo racket takeovers carry an 18% flat penalty.** That single number is what makes
+crews matter. Without it, one rich player takes the whole map alone.
+
+**Racket income is paid dirty.** A family that takes a lot of ground immediately has a
+laundering problem, which turns wash capacity into the next thing worth fighting over.
+
 **Associates do not kick up.** The brief said captains collect from "soldiers and
 associates" but also that associates "don't kick up". The more specific rule won.
 `CONFIG.ASSOCIATES_KICK_UP` flips it.
 
-**Dirty money dies with you.** Clean money survives. That is the entire reason to
-launder, and the entire reason a boss with $2M dirty in a rented room is a target.
+**All of your money dies with you** — clean and dirty alike. The Quantum Bank is the
+only exception, and it charges 10% on the way in. That fee is the design: without it the
+vault is free insurance and nobody ever carries anything worth stealing.
 
 **Sentences are capped at 24 hours** regardless of what a President legislates.
 Otherwise the first hostile administration benches the whole mafia for a week.
@@ -104,7 +121,7 @@ Otherwise the first hostile administration benches the whole mafia for a week.
 When running on the mock backend, the dashboard has two buttons:
 
 - **Run the weekly tick** — fires the whole weekly economy immediately (salaries,
-  kick-ups, upkeep, laundering resets, interest, territory decay) so you can watch a
+  kick-ups, racket income, upkeep, laundering resets, interest) so you can watch a
   week of money movement in a second instead of waiting for a cron.
 - **Reset the world** — wipes `localStorage` and re-seeds.
 
@@ -112,8 +129,9 @@ When running on the mock backend, the dashboard has two buttons:
 
 ## Status
 
-The frontend is complete and playable end to end against the mock backend. The Xano
-backend is specified in full but not built — that is the next step, and
-`docs/XANO_SETUP.md` §12 has the build order that gets you to a playable server fastest.
+The frontend is complete and playable end to end against the mock backend — including a
+public landing page, the full racket and diplomacy systems, and the permadeath and
+respawn cycle. The Xano backend is specified in full but not built; `docs/XANO_SETUP.md`
+§12 has the build order that gets you to a playable server fastest.
 
 Known gaps are listed honestly at the end of `docs/GAME_DESIGN.md`.

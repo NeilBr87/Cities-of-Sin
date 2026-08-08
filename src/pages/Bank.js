@@ -3,7 +3,7 @@ import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Field, Empty, Loading, Stat } from '../components/ui';
 import { money, fullName, pct } from '../game/format';
-import { CONFIG } from '../game/economy';
+import { CONFIG, quantumDepositNet } from '../game/economy';
 
 export default function Bank() {
   const { me, act } = useGame();
@@ -11,6 +11,7 @@ export default function Bank() {
   const [amount, setAmount] = useState('');
   const [frontId, setFrontId] = useState('');
   const [send, setSend] = useState({ q: '', to: null, amount: '', kind: 'clean' });
+  const [vault, setVault] = useState({ deposit: '', withdraw: '' });
   const [found, setFound] = useState([]);
 
   const load = useCallback(() => {
@@ -32,11 +33,58 @@ export default function Bank() {
         For that it has to be washed — and washing costs.
       </p>
 
-      <div className="grid grid-3">
+      <div className="grid grid-4">
         <Stat label="Clean" value={money(me.clean)} tone="money" sub={`${pct(CONFIG.BANK_INTEREST_WEEKLY)} weekly interest`} />
-        <Stat label="Dirty" value={money(me.dirty)} tone="dirty" sub="lost entirely if you are killed" />
+        <Stat label="Dirty" value={money(me.dirty)} tone="dirty" sub="lost if you are killed" />
+        <Stat label="Quantum Bank" value={money(data.quantum)} sub="survives your death" />
         <Stat label="Wash capacity left" value={money(data.launderCapacity)} sub="resets weekly" />
       </div>
+
+      <Card title="The Quantum Bank">
+        <p className="faint tiny" style={{ marginTop: 0 }}>
+          This account belongs to <strong>you</strong>, not to your character. When you are
+          assassinated, everything else is gone — cash, rank, family, property. This is not.
+          It costs {pct(CONFIG.QUANTUM_DEPOSIT_FEE)} to put money in and it pays no interest
+          while it sits there. That fee is the price of still having something afterwards.
+        </p>
+        <div className="grid grid-2">
+          <div>
+            <Field label={`Deposit clean money (min ${money(CONFIG.QUANTUM_MIN_DEPOSIT)})`}>
+              <input type="number" value={vault.deposit} onChange={(e) => setVault({ ...vault, deposit: e.target.value })} />
+            </Field>
+            <p className="tiny muted">
+              {money(Number(vault.deposit || 0))} in →{' '}
+              <strong className="money-clean">{money(quantumDepositNet(Number(vault.deposit || 0)))}</strong> vaulted
+            </p>
+            <button
+              className="btn-brass"
+              disabled={Number(vault.deposit || 0) < CONFIG.QUANTUM_MIN_DEPOSIT || Number(vault.deposit) > me.clean}
+              onClick={() => act(
+                () => api.bank.quantumDeposit(Number(vault.deposit || 0)),
+                (r) => `Vaulted ${money(r.credited)}. Fee ${money(r.fee)}.`
+              ).then(() => { setVault({ ...vault, deposit: '' }); load(); })}
+            >
+              Put it in the vault
+            </button>
+          </div>
+          <div>
+            <Field label="Withdraw to clean money">
+              <input type="number" value={vault.withdraw} onChange={(e) => setVault({ ...vault, withdraw: e.target.value })} />
+            </Field>
+            <p className="tiny muted">No fee coming out. {money(data.quantum)} available.</p>
+            <button
+              className="btn-sm"
+              disabled={!Number(vault.withdraw) || Number(vault.withdraw) > data.quantum}
+              onClick={() => act(
+                () => api.bank.quantumWithdraw(Number(vault.withdraw || 0)),
+                (r) => `Withdrew ${money(r.withdrawn)}.`
+              ).then(() => { setVault({ ...vault, withdraw: '' }); load(); })}
+            >
+              Take it out
+            </button>
+          </div>
+        </div>
+      </Card>
 
       <Card title="Wash money">
         {data.fronts.length === 0 && (

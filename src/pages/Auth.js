@@ -3,9 +3,9 @@ import { useGame } from '../state/GameContext';
 import { Card, Field, Alert } from '../components/ui';
 import { ERA } from '../game/era';
 
-export default function Auth() {
+export default function Auth({ initialMode = 'login', onBack }) {
   const { signIn } = useGame();
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(initialMode);
   const [form, setForm] = useState({ username: '', password: '', email: '' });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -66,8 +66,13 @@ export default function Auth() {
         </Card>
 
         <p className="faint tiny" style={{ textAlign: 'center', marginTop: 14 }}>
-          Three cities. Three ways up. Only five families.
+          Four cities. Three ways up. Five family seats in each.
         </p>
+        {onBack && (
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            <button className="btn-ghost btn-sm" onClick={onBack}>Back to the front page</button>
+          </div>
+        )}
       </div>
     </div>
   );

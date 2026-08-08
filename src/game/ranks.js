@@ -18,8 +18,8 @@ export const PATH_META = {
     label: 'Mafia',
     entryRank: 'hoodlum',
     blurb:
-      'Earn dirty, kick up, get made. The ceiling is a family of your own — ' +
-      'but there are only ever five, and somebody already has one.',
+      'Earn dirty, kick up, get made. Take rackets, hold districts, and the ' +
+      'ceiling is a family of your own — five seats per city and no sixth.',
   },
   [PATHS.POLITICIAN]: {
     id: PATHS.POLITICIAN,

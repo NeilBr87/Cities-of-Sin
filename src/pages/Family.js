@@ -5,6 +5,7 @@ import { Card, Field, Empty, Loading, Badge, ConfirmButton, Tabs } from '../comp
 import { rank } from '../game/ranks';
 import { money, fullName } from '../game/format';
 import { CONFIG } from '../game/economy';
+import { CITIES, DISTRICTS, cityById, districtById } from '../game/world';
 
 /** The family you are in: roster, crews, treasury, hits, and boss controls. */
 export default function Family() {
@@ -37,7 +38,8 @@ export default function Family() {
         <h1>No Family</h1>
         <Card>
           <Empty>
-            You are unattached. Sign on with one of the five families, or found your own if a seat is open.
+            You are unattached. Sign on with a family, or found your own — there are five seats
+            in every city and they are not all taken.
           </Empty>
         </Card>
       </>
@@ -45,11 +47,17 @@ export default function Family() {
   }
 
   const fam = me.family;
+  // Districts that already hold one of this family's crews — one per district.
+  const takenDistricts = new Set(crews.map((c) => c.districtId));
+  const operatingCities = me.familyCities?.length ? me.familyCities : [fam.cityId];
 
   return (
     <>
       <h1>{fam.logo} {fam.name} Family</h1>
       <p className="flavour" style={{ marginTop: -8 }}>{fam.motto || 'No motto. Yet.'}</p>
+      <p className="tiny muted" style={{ marginTop: -4 }}>
+        Operating in {operatingCities.map((c) => cityById(c)?.name).filter(Boolean).join(', ')}
+      </p>
 
       <Tabs
         active={tab}
@@ -85,9 +93,25 @@ export default function Family() {
                     >Make</button>
                   )}
                   {m.rankId === 'soldier' && (
-                    <button className="btn-sm" onClick={() => act(() => api.families.promote(m.id, 'captain'), 'Promoted to captain.').then(load)}>
-                      Promote
-                    </button>
+                    // A crew is planted in a district, and only one per family
+                    // per district — so promoting is also a territory decision.
+                    <select
+                      style={{ width: 190 }}
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        const districtId = e.target.value;
+                        e.target.value = '';
+                        act(() => api.families.promote(m.id, 'captain', districtId), 'Promoted. The crew has a district.').then(load);
+                      }}
+                    >
+                      <option value="">Promote — crew district…</option>
+                      {DISTRICTS.filter((d) => (me.familyCities || [fam.cityId]).includes(d.cityId))
+                        .filter((d) => !takenDistricts.has(d.id))
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>{d.name} ({cityById(d.cityId)?.short})</option>
+                        ))}
+                    </select>
                   )}
                   {['soldier', 'captain'].includes(m.rankId) && (
                     <button className="btn-sm" onClick={() => act(() => api.families.demote(m.id), 'Demoted.').then(load)}>
@@ -133,6 +157,8 @@ export default function Family() {
               <Card key={c.id} title={c.name}>
                 <p className="faint tiny" style={{ marginTop: 0 }}>
                   Captain: {c.captain ? fullName(c.captain) : 'vacant'} · {c.size} member(s)
+                  <br />
+                  Holds {districtById(c.districtId)?.name}, {cityById(c.cityId)?.short}
                 </p>
                 {['soldier', 'associate'].includes(me.rankId) && String(me.crewId) !== String(c.id) && (
                   <button className="btn-sm" onClick={() => act(() => api.crews.join(c.id), `Joined the ${c.name}.`).then(load)}>
@@ -148,10 +174,15 @@ export default function Family() {
             ))}
           </div>
           <Card title="How the money moves">
-            <p className="faint tiny" style={{ marginBottom: 0 }}>
+            <p className="faint tiny" style={{ marginBottom: 8 }}>
               Every week, soldiers kick {CONFIG.KICK_UP_PCT * 100}% up to their captain — or straight to the boss if
               they are not in a crew. Captains keep what they collect, then kick {CONFIG.KICK_UP_PCT * 100}% of their own
               total to the boss. Associates{CONFIG.ASSOCIATES_KICK_UP ? ' also kick up' : ' pay nothing, and are owed nothing'}.
+            </p>
+            <p className="faint tiny" style={{ marginBottom: 0 }}>
+              Racket income goes to the crew's captain where a crew holds it, and to the family
+              treasury where it does not. One crew per district — spreading out is the only way
+              to run more of them.
             </p>
           </Card>
         </>
@@ -185,6 +216,27 @@ export default function Family() {
             >
               Disband
             </ConfirmButton>
+          </div>
+
+          <hr />
+          <h3>Expand into another city</h3>
+          <p className="faint tiny" style={{ marginTop: 0 }}>
+            {money(CONFIG.FAMILY_EXPANSION_COST)} from the treasury per city. Once you are in,
+            you can plant crews and take rackets there — one crew per district, as everywhere.
+          </p>
+          <div className="row">
+            {CITIES.filter((c) => !operatingCities.includes(c.id)).map((c) => (
+              <button
+                key={c.id}
+                className="btn-sm"
+                onClick={() => act(() => api.families.expand(c.id), `The ${fam.name} family is open in ${c.name}.`).then(load)}
+              >
+                Open in {c.name}
+              </button>
+            ))}
+            {CITIES.every((c) => operatingCities.includes(c.id)) && (
+              <span className="faint tiny">You are in all four cities already.</span>
+            )}
           </div>
         </Card>
       )}

@@ -1,6 +1,6 @@
 # Cities of Sin — Game Design
 
-A multiplayer browser RPG. Three cities, three paths, one economy that all three
+A multiplayer browser RPG. Four cities, three paths, one economy that all three
 fight over. This document is the ruleset; `docs/XANO_SETUP.md` is how to build the
 server that enforces it.
 
@@ -21,25 +21,20 @@ eras and the game re-skins itself when you change one line:
 The default is 1979 because it supports the gameplay best: strong unions, cash
 economy, and no CCTV to explain away. Switch with `REACT_APP_ERA=modern`.
 
-**Note on the brief:** it mentioned "Hollywood in LA" as a regional variant, but the
-three cities listed are New York, Chicago and Las Vegas. LA is not in the game. The
-Las Vegas equivalent of that idea is **The Strip**, and each city has a signature
-system instead:
+Each city has exactly one signature system:
 
 - **New York** — Union Halls. Locals control the docks, sanitation and concrete.
 - **Chicago** — The Ward Machine. Elections here are the cheapest to rig.
 - **Las Vegas** — The Casinos. The only place dirty money washes at scale.
-
-If you do want LA as a fourth city, it is one entry in `src/game/world.js` plus its
-districts. Nothing else needs to change.
+- **Los Angeles** — The Studios. Studio payroll, teamster crews and production loans.
 
 ---
 
 ## 2. The world
 
-Three cities, six districts each (18 total). The **district** is the atomic unit —
-crimes, property, police departments, councilman seats, chat rooms and family
-dominance all hang off it.
+Four cities, six districts each (24 total). The **district** is the atomic unit —
+crimes, rackets, property, police departments, councilman seats, chat rooms and
+crews all hang off it.
 
 Each district has two numbers that drive everything:
 
@@ -48,6 +43,9 @@ Each district has two numbers that drive everything:
 
 So Midtown pays 1.5× but is policed at 1.4×; Boulder Highway pays 0.8× and is barely
 watched at 0.6×. That tension is the whole map design: *where you work is a bet.*
+
+Hollywood is the second-richest district in the game at 1.55× — LA money is soft, slow
+and enormous, and it is policed far more lightly than Midtown.
 
 You move between districts freely inside a city. **You can only reach another city by
 plane**, and the ticket is paid in clean money.
@@ -128,8 +126,13 @@ evidence value. That is what gives police something to find.
 
 ## 5. Family structure
 
-**Five families. Ever.** First come, first served, $2,500,000 clean to found one. When
-all five slots are full, the only way in is for a boss to fall.
+**Five families per city — twenty in the world.** First come, first served,
+$2,500,000 clean to found one, and you pick which city's seat you are taking. When a
+city's five are full, either take a seat somewhere else or wait for a boss to fall.
+
+A family starts in one city and **expands** into the others for
+$1,200,000 from the treasury per city. Until it has expanded, it cannot plant crews or
+take rackets there.
 
 - **Boss** — runs the family; collects 10% from every captain weekly; edits the family
   name, motto, logo and colour; orders assassinations and assigns them to a captain;
@@ -139,6 +142,8 @@ all five slots are full, the only way in is for a boss to fall.
 - **Captain** — runs a crew named after their surname (Genovese → *Genovese Crew*);
   collects 10% weekly from their crew; pays 10% of their own total to the boss;
   organises crew jobs; kicks from their crew; picks the shooter when handed a hit.
+  A crew is **planted in a district**, and a family may hold only **one crew per
+  district** — so promoting somebody is also a decision about where you are expanding.
 - **Soldier** — made. Kicks 10% weekly to their captain, or straight to the boss if
   they are not in a crew. Access to crew jobs.
 - **Associate** — signed on but not made. **Does not kick up, and is owed nothing.**
@@ -154,6 +159,78 @@ all five slots are full, the only way in is for a boss to fall.
 Runs on a cron. All amounts are calculated from **one snapshot taken before any money
 moves**, so processing order cannot change the result. Taken from dirty money first,
 then clean.
+
+---
+
+## 5a. Rackets and territory
+
+A district is not an abstract score. It is a list of **rackets** — four per district,
+96 in the world — and **whoever holds the most of them controls the district**. A tie
+leaves it *contested* and under nobody, which is what a stalemate should look like.
+
+Every racket is regional. The archetype carries the numbers; the name carries the
+place. The same "union" archetype is *Longshoremen Local 1814* in Red Hook, *Meatpackers
+Local 25* in the Stockyards, and *Studio Teamsters Local 399* in Hollywood.
+
+| Archetype | Weekly income | Defence | Price |
+|---|---|---|---|
+| Numbers | $2,200 | 18 | $45,000 |
+| Protection | $3,000 | 26 | $62,000 |
+| Vice | $3,800 | 30 | $78,000 |
+| Transport | $4,600 | 34 | $96,000 |
+| Union | $5,600 | 42 | $128,000 |
+| Narcotics | $6,800 | 46 | $155,000 |
+| High End | $8,200 | 52 | $210,000 |
+
+All of it scaled by district wealth, and all of it paid **dirty** — which is why
+laundering capacity starts to matter the moment a family actually holds ground.
+
+**Buying** an unclaimed racket costs clean money and is safe. **Taking** one that
+somebody holds is the crew system's reason to exist:
+
+```
+chance = 50%
+       + 5.5% per crew member (max 8)
+       + (combat skill / 100) × 18%
+       + rank level × 2%
+       − racket defence / 100
+       − 1.2% per defender standing behind it
+       − 18% flat if you bring no crew at all
+       clamped to 3%–90%
+```
+
+You must be **standing in the district**, be **made**, and your family must **operate in
+that city**. A racket that has just changed hands is untouchable for 30 minutes, so two
+crews cannot ping-pong the same racket all evening.
+
+Racket income pays the **crew's captain** where a crew holds it, and the **family
+treasury** where it does not.
+
+---
+
+## 5b. Diplomacy
+
+Every pair of families is Neutral until a boss changes it. Proposals arrive in the other
+boss's **inbox**.
+
+| State | Partners | Effect |
+|---|---|---|
+| **Neutral** | any number | The default. Everybody can rob everybody |
+| **Non-Aggression Pact** | one | Members of both families cannot attack or mug each other. Either boss can tear it up |
+| **To the Mattresses** | one | Soldiers and above on both sides can assassinate each other freely — no contract, no bounty, no orders |
+| **Allies** | one | When your ally goes to the mattresses, your soldiers inherit the war. Either boss can walk away |
+
+> **A decision worth flagging:** the brief described all four as requests landing in the
+> other boss's inbox. Pacts and alliances work exactly that way — they need consent. War
+> does **not**: it is declared, and the other boss is *notified* rather than asked,
+> because a war you need permission to start is not a war. Change
+> `requiresConsent` in `src/game/diplomacy.js` if you would rather it be symmetrical.
+
+A pact or alliance can be ended with a button (after a one-hour minimum, so nothing is
+signed and torn up in the same breath). **A war cannot.** Ending a war means opening the
+**peace offering menu** — money from your treasury, rackets off your map, or both — and
+sending terms the other boss has to accept. On acceptance the transfers happen
+immediately and both families return to Neutral.
 
 ---
 
@@ -205,10 +282,12 @@ disband their department → Officers → Rookies (unassigned).
 
 Two balances, and the difference between them is the entire mid-game.
 
-- **Dirty** — everything crime pays. Buys guns, bribes and tribute. **Lost entirely if
-  you are killed.** Cannot buy property, plane tickets, or a family.
+- **Dirty** — crime and racket income. Buys guns, bribes and tribute. Cannot buy
+  property, plane tickets, or a family.
 - **Clean** — salaries, laundered money, arrest bonuses. Buys everything. Earns 1%
-  weekly interest. Survives death.
+  weekly interest.
+
+**Both die with you.** See §12.
 
 **Laundering**: without a front you are capped at $5,000/week at a punishing 60%. Own a
 front and both numbers improve sharply:
@@ -264,16 +343,45 @@ appears. Get arrested and the block starts talking to you.
 
 ---
 
-## 12. Assassination
+## 12. Violence, death, and the Quantum Bank
 
-The boss orders a hit and funds the bounty from the family treasury. The boss assigns a
-**captain**; the captain picks a **shooter from their own crew**. The shooter must be in
-the same city, must be armed, and resolves against the target's combat score — including
-their property's safety rating if they are indoors.
+### Anyone can rob anyone
+Any player may attack any other in the same district and take **25% of the dirty money**
+on them. The defender's property safety counts only if they are *inside* it. The single
+exception is a **non-aggression pact** — members of two families bound by one cannot
+touch each other at all.
 
-Success: the target loses all dirty money, 35% of their respect, and drops to 10 health.
-The shooter takes the bounty and 250 respect. Failure: the shooter takes 45 damage and
-the contract goes back to needing a shooter.
+### Only a boss can order a killing
+The boss funds the bounty from the family treasury, assigns a **captain**, and the
+captain picks a **shooter from their own crew**. The shooter must be in the same city,
+must be armed, and resolves against the target's combat score — including their
+property's safety rating if they are indoors.
+
+### Unless you are at war
+Under **To the Mattresses**, soldiers and above on both sides can kill each other with no
+contract, no bounty and no orders — but only made men, on both ends. An ally inherits the
+war and the licence with it.
+
+### Death is permanent
+There is no revive. When a character is killed:
+
+- the character is finished — **cash, rank, family, crew, property, all gone**
+- the account creates a **new character**, and may take a completely different path
+- a boss's death triggers succession (the most-respected captain inherits); a captain's
+  death leaves their crew standing but leaderless
+- the family **keeps its rackets** — territory belongs to the family, not the man
+
+### The Quantum Bank
+The one account that outlives you. It belongs to the **account, not the character**.
+
+- Deposits cost a **10% fee**, minimum $1,000
+- It pays **no interest** — it is a vault, not an investment
+- Withdrawals are free and instant
+- It is untouched by death
+
+The fee is the whole design. Without it the vault is free insurance against every risk
+in the game and nobody ever carries anything worth stealing; with it, hoarding is a real
+cost and the decision of *how much* to protect is the interesting one.
 
 ---
 
@@ -284,6 +392,10 @@ Called out honestly rather than left as a surprise:
 - **Elections do not auto-close.** The endpoints to stand, campaign and vote all work,
   and terms have end dates, but the cron that closes a race and seats the winner is
   specified in `XANO_SETUP.md` §7 and not implemented in the mock.
+- **Peace offers do not expire.** `PEACE_OFFER_EXPIRY_HOURS` exists in config and is not
+  yet enforced by a cron.
+- **Rackets have no active defence.** Defenders raise the difficulty by existing, but a
+  defending crew cannot be alerted or choose to reinforce.
 - **Crew jobs are announcements, not multi-player instances.** `POST /crews/jobs` records
   the job and the crew can see it; a real "everyone joins, then it resolves together"
   flow needs a job state machine.

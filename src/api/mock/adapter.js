@@ -13,7 +13,14 @@ import { RANKS, rank, PATHS } from '../../game/ranks';
 import {
   CONFIG, crimeSuccessChance, crimePayout, crimeHeat, sentenceSeconds, bailCost,
   arrestChance, arrestBonus, combatScore, launderOutput, respectForCrime, clamp,
+  districtController, quantumDepositNet,
 } from '../../game/economy';
+import {
+  racketById, racketsOfDistrict, racketIncome, racketPrice, takeoverChance,
+} from '../../game/rackets';
+import {
+  DIPLOMACY, allowsAttack, allowsFreeAssassination, needsConsent, isExclusive,
+} from '../../game/diplomacy';
 import { GUNS, VEHICLES, ARMOUR, PROPERTY_TYPES, FRONTS, itemById, propertyTypeById, frontById, propertyPrice } from '../../game/items';
 import { crewName } from '../../game/format';
 
@@ -78,10 +85,19 @@ function userFromToken(token) {
   return user;
 }
 
+/**
+ * The account's *living* character. A user may have many player rows over time
+ * — one per life — but only ever one that is not in a grave.
+ */
 function currentPlayer(token) {
   const user = userFromToken(token);
-  const p = db.find('players', (x) => String(x.userId) === String(user.id));
-  if (!p) fail(409, 'No character yet.');
+  const p = db.filter('players', (x) => String(x.userId) === String(user.id) && !x.deadAt)[0];
+  if (!p) {
+    const dead = db.filter('players', (x) => String(x.userId) === String(user.id))
+      .sort((a, b) => new Date(b.deadAt || 0) - new Date(a.deadAt || 0))[0];
+    if (dead) fail(410, 'Your character is dead. Create a new one.');
+    fail(409, 'No character yet.');
+  }
   return tick(p);
 }
 
@@ -117,6 +133,7 @@ function tick(p) {
 
 const inJail = (p) => !!(p.jailUntil && new Date(p.jailUntil) > new Date());
 function requireFree(p) {
+  if (p.deadAt) fail(410, 'You are dead. Start a new character.');
   if (inJail(p)) fail(403, 'You are in a cell. That is rather the point of a cell.');
 }
 
@@ -164,11 +181,182 @@ function lawFor(category, cityId) {
   return nation || city || { sentenceMultiplier: 1, legal: false };
 }
 
-function addDominance(familyId, districtId, points) {
-  if (!familyId) return;
-  const row = db.find('dominance', (d) => String(d.familyId) === String(familyId) && d.districtId === districtId);
-  if (row) db.update('dominance', row.id, { points: Math.min(100, row.points + points) });
-  else db.insert('dominance', { familyId, districtId, points });
+// ------------------------------------------------------------- diplomacy --
+
+/** Pairs are stored with the lower id first so a pair has exactly one row. */
+function pairKey(a, b) {
+  const x = String(a);
+  const y = String(b);
+  return Number(x) <= Number(y) ? [x, y] : [y, x];
+}
+
+function diploRow(famA, famB) {
+  const [a, b] = pairKey(famA, famB);
+  return db.find('diplomacy', (d) => String(d.familyA) === a && String(d.familyB) === b);
+}
+
+/** The state between two families. Neutral is the absence of a row. */
+function diploState(famA, famB) {
+  if (!famA || !famB) return DIPLOMACY.NEUTRAL;
+  if (String(famA) === String(famB)) return 'same';
+  return diploRow(famA, famB)?.state || DIPLOMACY.NEUTRAL;
+}
+
+function setDiploState(famA, famB, state) {
+  const [a, b] = pairKey(famA, famB);
+  const existing = diploRow(a, b);
+  if (state === DIPLOMACY.NEUTRAL) {
+    if (existing) db.remove('diplomacy', existing.id);
+    return null;
+  }
+  if (existing) return db.update('diplomacy', existing.id, { state, since: nowIso() });
+  return db.insert('diplomacy', { familyA: a, familyB: b, state, since: nowIso() });
+}
+
+/** The one family a family currently holds an exclusive state with, if any. */
+function exclusivePartner(familyId, state) {
+  const row = db.all('diplomacy').find(
+    (d) => d.state === state && (String(d.familyA) === String(familyId) || String(d.familyB) === String(familyId))
+  );
+  if (!row) return null;
+  return String(row.familyA) === String(familyId) ? row.familyB : row.familyA;
+}
+
+/** Everyone a family is at war with, including wars inherited from an ally. */
+function warTargets(familyId) {
+  const direct = exclusivePartner(familyId, DIPLOMACY.WAR);
+  const ally = exclusivePartner(familyId, DIPLOMACY.ALLIED);
+  const inherited = ally ? exclusivePartner(ally, DIPLOMACY.WAR) : null;
+  return [direct, inherited].filter((x) => x && String(x) !== String(familyId));
+}
+
+/** True when two players may attack or mug each other at all. */
+function mayAttack(a, b) {
+  if (!a.familyId || !b.familyId) return true;
+  if (String(a.familyId) === String(b.familyId)) return true;
+  return allowsAttack(diploState(a.familyId, b.familyId));
+}
+
+/** True when a soldier-or-above may kill without a boss-issued contract. */
+function mayFreelyAssassinate(killer, target) {
+  if (!killer.familyId || !target.familyId) return false;
+  if (rank(killer.rankId).level < rank('soldier').level) return false;
+  if (allowsFreeAssassination(diploState(killer.familyId, target.familyId))) return true;
+  // An ally inherits the war, and with it the licence.
+  return warTargets(killer.familyId).some((f) => String(f) === String(target.familyId));
+}
+
+function inboxSend(toFamilyId, type, payload, fromFamilyId, fromPlayerId) {
+  return db.insert('inbox', {
+    toFamilyId, fromFamilyId, fromPlayerId, type, payload,
+    status: 'pending', at: nowIso(),
+  });
+}
+
+// --------------------------------------------------------------- rackets --
+
+/** A racket row is created lazily the first time anybody looks at it. */
+function racketRow(racketId) {
+  let row = db.find('rackets', (r) => r.racketId === racketId);
+  if (!row) {
+    const def = racketById(racketId);
+    if (!def) return null;
+    row = db.insert('rackets', {
+      racketId, districtId: def.districtId,
+      ownerFamilyId: null, ownerCrewId: null, takenAt: null,
+    });
+  }
+  return row;
+}
+
+/** Racket rows for a district, with their static definition merged in. */
+function districtRackets(districtId) {
+  return racketsOfDistrict(districtId).map((def) => {
+    const row = racketRow(def.id);
+    return { ...def, ...row, id: def.id, rowId: row.id, name: def.name };
+  });
+}
+
+/** How many bodies stand behind a racket — used as takeover resistance. */
+function defenderStrength(row) {
+  if (!row?.ownerFamilyId) return 0;
+  if (row.ownerCrewId) {
+    return db.filter('players', (p) => String(p.crewId) === String(row.ownerCrewId)).length;
+  }
+  return db.filter('players', (p) => String(p.familyId) === String(row.ownerFamilyId)).length;
+}
+
+// ------------------------------------------------------------------ death --
+
+/**
+ * Assassination is permanent. The character is finished: their money is gone,
+ * their rank is gone, and the account has to start again from nothing but
+ * whatever they had the foresight to put in the Quantum Bank.
+ *
+ * The one thing this does NOT touch is `users.quantum` — that is the whole
+ * point of the vault.
+ */
+function killPlayer(target, killer, cause) {
+  // A boss dying is a succession crisis, not just a death.
+  if (target.familyId) {
+    const fam = db.byId('families', target.familyId);
+    if (fam && String(fam.bossId) === String(target.id)) {
+      const heir = db.filter('players', (x) =>
+        String(x.familyId) === String(fam.id) && x.rankId === 'captain' && !x.deadAt)
+        .sort((a, b) => b.respect - a.respect)[0];
+      if (heir) {
+        db.update('families', fam.id, { bossId: heir.id });
+        db.update('players', heir.id, { rankId: 'boss', crewId: null });
+      } else {
+        db.update('families', fam.id, { bossId: null });
+      }
+    }
+  }
+
+  // A captain dying leaves their crew standing but leaderless.
+  const crew = db.find('crews', (c) => String(c.captainId) === String(target.id));
+  if (crew) db.update('crews', crew.id, { captainId: null });
+
+  // Rackets held personally by their crew stay with the family; the family
+  // keeps the territory even when the man holding it is gone.
+
+  db.insert('graves', {
+    playerId: target.id,
+    username: target.username,
+    name: `${target.firstName} ${target.lastName}`,
+    rankId: target.rankId,
+    familyId: target.familyId,
+    killedBy: killer?.id ?? null,
+    killedByName: killer?.username ?? null,
+    cause: cause || 'assassination',
+    respect: target.respect,
+    at: nowIso(),
+  });
+
+  return db.update('players', target.id, {
+    deadAt: nowIso(),
+    clean: 0,
+    dirty: 0,
+    health: 0,
+    heat: 0,
+    familyId: null,
+    crewId: null,
+    partyId: null,
+    departmentId: null,
+    insidePropertyId: null,
+    jailUntil: null,
+    jailCityId: null,
+  });
+}
+
+const isDead = (p) => !!p?.deadAt;
+
+/** Whether a family has bought its way into a city. Its home city is always open. */
+function familyOperatesIn(familyId, cityId) {
+  const fam = db.byId('families', familyId);
+  if (!fam) return false;
+  if (fam.cityId === cityId) return true;
+  return !!db.find('expansions', (e) => String(e.familyId) === String(familyId) && e.cityId === cityId);
 }
 
 /** Public shape of a player — never leaks another player's balances. */
@@ -186,9 +374,22 @@ function publicPlayer(p) {
 function selfPlayer(p) {
   const gun = equippedGun(p);
   const armour = equippedArmour(p);
+  const user = p.userId ? db.byId('users', p.userId) : null;
   return {
     ...p,
     fullState: true,
+    dead: isDead(p),
+    quantum: user?.quantum || 0,
+    diplomacy: p.familyId ? diploPublic(p.familyId) : [],
+    warTargets: p.familyId ? warTargets(p.familyId).map(String) : [],
+    familyCities: p.familyId
+      ? [db.byId('families', p.familyId)?.cityId,
+        ...db.filter('expansions', (e) => String(e.familyId) === String(p.familyId)).map((e) => e.cityId)]
+        .filter(Boolean)
+      : [],
+    inboxCount: p.familyId && db.byId('families', p.familyId)?.bossId === p.id
+      ? db.filter('inbox', (m) => String(m.toFamilyId) === String(p.familyId) && m.status === 'pending').length
+      : 0,
     equipped: { gun: gun || null, armour: armour || null },
     family: p.familyId ? db.byId('families', p.familyId) : null,
     crew: p.crewId ? db.byId('crews', p.crewId) : null,
@@ -221,8 +422,11 @@ route('POST', '/auth/login', ({ body }) => {
 
 route('GET', '/auth/me', ({ token }) => {
   const user = userFromToken(token);
-  const p = db.find('players', (x) => String(x.userId) === String(user.id));
-  return { user: { id: user.id, username: user.username }, hasCharacter: !!p };
+  const alive = db.filter('players', (x) => String(x.userId) === String(user.id) && !x.deadAt)[0];
+  return {
+    user: { id: user.id, username: user.username, quantum: user.quantum || 0 },
+    hasCharacter: !!alive,
+  };
 });
 
 // ------------------------------------------------------------------- self --
@@ -231,7 +435,9 @@ route('GET', '/me', ({ token }) => selfPlayer(currentPlayer(token)));
 
 route('POST', '/me/character', ({ token, body }) => {
   const user = userFromToken(token);
-  if (db.find('players', (x) => String(x.userId) === String(user.id)))
+  // A dead character does not block a new one — that is the respawn path, and
+  // the new character may take a completely different road.
+  if (db.filter('players', (x) => String(x.userId) === String(user.id) && !x.deadAt).length)
     fail(409, 'You already have a character.');
   const { firstName, lastName, nickname, path, cityId, bio, avatar } = body;
   if (!firstName || !lastName) fail(400, 'A first and last name are required.');
@@ -451,7 +657,8 @@ route('POST', '/crimes/commit', ({ token, body }) => {
     changes.dirty = p.dirty + payout;
     changes.respect = p.respect + respect;
     changes.skills = { ...p.skills, crime: Math.min(100, p.skills.crime + (crime.tier === 1 ? 0.3 : 1)) };
-    addDominance(p.familyId, p.districtId, crime.tier === 3 ? CONFIG.DOMINANCE_PER_TIER3 : CONFIG.DOMINANCE_PER_CRIME);
+    // Territory is no longer earned by grinding crimes — it is held in rackets.
+    // Crime funds the crew that takes them.
     if (p.familyId) {
       const fam = db.byId('families', p.familyId);
       if (fam) db.update('families', fam.id, { respect: fam.respect + respect });
@@ -501,6 +708,7 @@ route('GET', '/crimes/history', ({ token }) => {
 
 route('GET', '/bank', ({ token }) => {
   const p = currentPlayer(token);
+  const user = db.byId('users', p.userId);
   const fronts = db.filter('fronts', (f) => String(f.ownerId) === String(p.id))
     .map((f) => ({ ...f, def: frontById(f.frontId) }));
   const capacity = fronts.length
@@ -511,7 +719,46 @@ route('GET', '/bank', ({ token }) => {
     fronts,
     launderCapacity: Math.max(0, capacity),
     floorRate: CONFIG.LAUNDER_FLOOR_RATE,
+    quantum: user?.quantum || 0,
+    quantumFee: CONFIG.QUANTUM_DEPOSIT_FEE,
+    quantumMinDeposit: CONFIG.QUANTUM_MIN_DEPOSIT,
   };
+});
+
+/**
+ * The Quantum Bank.
+ *
+ * It belongs to the ACCOUNT, not the character — which is the entire point.
+ * Everything else you own dies with you; this does not. The deposit fee is what
+ * stops it from being free insurance against every risk in the game.
+ */
+route('POST', '/bank/quantum/deposit', ({ token, body }) => {
+  const p = currentPlayer(token);
+  const user = db.byId('users', p.userId);
+  const amount = Math.floor(body.amount || 0);
+  if (amount < CONFIG.QUANTUM_MIN_DEPOSIT)
+    fail(400, `The vault does not take less than $${CONFIG.QUANTUM_MIN_DEPOSIT.toLocaleString()}.`);
+  spend(p, amount, 'clean');
+  const net = quantumDepositNet(amount);
+  db.update('users', user.id, { quantum: (user.quantum || 0) + net });
+  db.log(p.id, 'quantum', `Vaulted $${net.toLocaleString()} (fee $${(amount - net).toLocaleString()}).`);
+  return {
+    deposited: amount, credited: net, fee: amount - net,
+    quantum: (user.quantum || 0) + net,
+    player: selfPlayer(db.byId('players', p.id)),
+  };
+});
+
+route('POST', '/bank/quantum/withdraw', ({ token, body }) => {
+  const p = currentPlayer(token);
+  const user = db.byId('users', p.userId);
+  const amount = Math.floor(body.amount || 0);
+  if (amount <= 0) fail(400, 'Withdraw something.');
+  if ((user.quantum || 0) < amount) fail(402, 'The vault does not hold that much.');
+  db.update('users', user.id, { quantum: user.quantum - amount });
+  const updated = db.update('players', p.id, { clean: p.clean + amount });
+  db.log(p.id, 'quantum', `Withdrew $${amount.toLocaleString()} from the vault.`);
+  return { withdrawn: amount, quantum: user.quantum - amount, player: selfPlayer(updated) };
 });
 
 route('POST', '/bank/launder', ({ token, body }) => {
@@ -666,12 +913,32 @@ const familyPublic = (f) => ({
   boss: publicPlayer(db.byId('players', f.bossId)),
   memberCount: db.filter('players', (p) => String(p.familyId) === String(f.id)).length,
   crews: db.filter('crews', (c) => String(c.familyId) === String(f.id)).length,
+  cities: [
+    f.cityId,
+    ...db.filter('expansions', (e) => String(e.familyId) === String(f.id)).map((e) => e.cityId),
+  ],
+  racketCount: db.filter('rackets', (r) => String(r.ownerFamilyId) === String(f.id)).length,
 });
+
+/** Slots are counted per city now, not globally. */
+function citySlots() {
+  return CITIES.map((c) => {
+    const used = db.filter('families', (f) => f.cityId === c.id).length;
+    return {
+      cityId: c.id,
+      cityName: c.name,
+      used,
+      remaining: Math.max(0, CONFIG.MAX_FAMILIES_PER_CITY - used),
+    };
+  });
+}
 
 route('GET', '/families', () => ({
   families: db.all('families').map(familyPublic),
-  slotsRemaining: Math.max(0, CONFIG.MAX_FAMILIES - db.all('families').length),
+  citySlots: citySlots(),
+  maxPerCity: CONFIG.MAX_FAMILIES_PER_CITY,
   foundingCost: CONFIG.FAMILY_FOUNDING_COST,
+  expansionCost: CONFIG.FAMILY_EXPANSION_COST,
 }));
 
 route('GET', '/families/:id', ({ params }) => {
@@ -705,15 +972,20 @@ route('POST', '/families', ({ token, body }) => {
   const p = currentPlayer(token);
   if (p.path !== PATHS.MAFIA) fail(403, 'Only mafia can start a family.');
   if (p.familyId) fail(409, 'You are already in a family.');
-  if (db.all('families').length >= CONFIG.MAX_FAMILIES)
-    fail(409, 'All five seats are taken. Somebody has to fall first.');
+  // Five seats per city, not five in the world — so where you are standing
+  // when you found the family is a real decision.
+  const cityId = body.cityId || p.cityId;
+  if (!cityById(cityId)) fail(400, 'No such city.');
+  const usedHere = db.filter('families', (f) => f.cityId === cityId).length;
+  if (usedHere >= CONFIG.MAX_FAMILIES_PER_CITY)
+    fail(409, `All ${CONFIG.MAX_FAMILIES_PER_CITY} seats in ${cityById(cityId).name} are taken. Try another city, or wait for a boss to fall.`);
   const name = (body.name || '').trim();
   if (name.length < 3 || name.length > CONFIG.FAMILY_NAME_MAX) fail(400, 'Family name must be 3–32 characters.');
   if (db.find('families', (f) => f.name.toLowerCase() === name.toLowerCase())) fail(409, 'That name is taken.');
   spend(p, CONFIG.FAMILY_FOUNDING_COST, 'clean');
   const fam = db.insert('families', {
     name, motto: body.motto || '', logo: body.logo || '♠', colour: body.colour || '#b4322c',
-    cityId: p.cityId, bossId: p.id, treasuryClean: 0, treasuryDirty: 0, respect: 0,
+    cityId, bossId: p.id, treasuryClean: 0, treasuryDirty: 0, respect: 0,
   });
   const updated = db.update('players', p.id, { familyId: fam.id, rankId: 'boss', crewId: null });
   db.log(p.id, 'family', `Founded the ${name} family.`);
@@ -782,12 +1054,42 @@ route('POST', '/families/promote', ({ token, body }) => {
   if (!t || String(t.familyId) !== String(f.id)) fail(404, 'Not one of yours.');
   if (body.rankId !== 'captain') fail(400, 'A boss can promote a soldier to captain.');
   if (t.rankId !== 'soldier') fail(409, 'Only soldiers become captains.');
+
+  // A crew is planted in a district, and a family may only have one crew per
+  // district — so promoting is also a decision about where you are expanding.
+  const districtId = body.districtId || t.districtId;
+  const district = districtById(districtId);
+  if (!district) fail(400, 'Pick a district for the new crew.');
+  if (!familyOperatesIn(f.id, district.cityId))
+    fail(403, `The ${f.name} family does not operate in ${cityById(district.cityId).name} yet. Expand there first.`);
+  const taken = db.filter('crews', (c) =>
+    String(c.familyId) === String(f.id) && c.districtId === district.id).length;
+  if (taken >= CONFIG.MAX_CREWS_PER_DISTRICT)
+    fail(409, `You already have a crew in ${district.name}. One per district.`);
+
   const crew = db.insert('crews', {
-    name: crewName(t), captainId: t.id, familyId: f.id, cityId: t.cityId, districtId: t.districtId,
+    name: crewName(t), captainId: t.id, familyId: f.id,
+    cityId: district.cityId, districtId: district.id,
   });
   db.update('players', t.id, { rankId: 'captain', crewId: crew.id });
-  db.log(t.id, 'family', `Promoted to captain. The ${crew.name} is yours.`);
+  db.log(t.id, 'family', `Promoted to captain. The ${crew.name} holds ${district.name}.`);
   return { ok: true, crew };
+});
+
+/** Buying into a city the family was not founded in. */
+route('POST', '/families/expand', ({ token, body }) => {
+  const p = currentPlayer(token);
+  const f = db.byId('families', p.familyId);
+  if (!f || String(f.bossId) !== String(p.id)) fail(403, 'Only the boss expands the family.');
+  const city = cityById(body.cityId);
+  if (!city) fail(400, 'No such city.');
+  if (familyOperatesIn(f.id, city.id)) fail(409, `You already operate in ${city.name}.`);
+  if (f.treasuryClean < CONFIG.FAMILY_EXPANSION_COST)
+    fail(402, `Expansion costs ${CONFIG.FAMILY_EXPANSION_COST.toLocaleString()} from the treasury.`);
+  db.update('families', f.id, { treasuryClean: f.treasuryClean - CONFIG.FAMILY_EXPANSION_COST });
+  db.insert('expansions', { familyId: f.id, cityId: city.id, at: nowIso() });
+  db.log(p.id, 'family', `The ${f.name} family opened in ${city.name}.`);
+  return { ok: true, cities: [f.cityId, ...db.filter('expansions', (e) => String(e.familyId) === String(f.id)).map((e) => e.cityId)] };
 });
 
 route('POST', '/families/demote', ({ token, body }) => {
@@ -928,6 +1230,331 @@ route('POST', '/crews/jobs/:id/join', ({ token }) => {
   return { ok: true };
 });
 
+// ----------------------------------------------------------------- rackets --
+
+const racketPublic = (r) => {
+  const district = districtById(r.districtId);
+  return {
+    ...r,
+    income: racketIncome(r, district),
+    price: racketPrice(r, district),
+    ownerFamily: r.ownerFamilyId ? db.byId('families', r.ownerFamilyId) : null,
+    ownerCrew: r.ownerCrewId ? db.byId('crews', r.ownerCrewId) : null,
+    defenders: defenderStrength(r),
+  };
+};
+
+route('GET', '/districts/:id/rackets', ({ token, params }) => {
+  const p = currentPlayer(token);
+  const district = districtById(params.id);
+  if (!district) fail(404, 'No such district.');
+  const rows = districtRackets(district.id);
+  const crewSize = p.crewId ? db.filter('players', (x) => String(x.crewId) === String(p.crewId)).length : 0;
+
+  return {
+    district,
+    control: districtController(rows),
+    rackets: rows.map((r) => ({
+      ...racketPublic(r),
+      yours: !!p.familyId && String(r.ownerFamilyId) === String(p.familyId),
+      takeoverChance: r.ownerFamilyId && String(r.ownerFamilyId) !== String(p.familyId)
+        ? takeoverChance({
+          attackerCrewSize: crewSize,
+          attackerSkill: p.skills?.combat ?? 0,
+          attackerRankLevel: rank(p.rankId).level,
+          racket: r,
+          defenderStrength: defenderStrength(r),
+        })
+        : null,
+      graceLeft: r.takenAt
+        ? Math.max(0, CONFIG.RACKET_GRACE_SEC - Math.round(secsSince(r.takenAt)))
+        : 0,
+    })),
+  };
+});
+
+route('GET', '/me/rackets', ({ token }) => {
+  const p = currentPlayer(token);
+  if (!p.familyId) return [];
+  return db.filter('rackets', (r) => String(r.ownerFamilyId) === String(p.familyId))
+    .map((r) => {
+      const def = racketById(r.racketId);
+      const district = districtById(r.districtId);
+      return { ...def, ...r, district, income: racketIncome(def, district) };
+    });
+});
+
+/** Buying an unclaimed racket. Cheap compared to taking one, and far safer. */
+route('POST', '/rackets/buy', ({ token, body }) => {
+  const p = currentPlayer(token);
+  requireFree(p);
+  if (!p.familyId) fail(403, 'Rackets are held by families. Join one first.');
+  if (rank(p.rankId).level < rank('soldier').level) fail(403, 'You have to be made to hold a racket.');
+
+  const def = racketById(body.racketId);
+  if (!def) fail(404, 'No such racket.');
+  const row = racketRow(def.id);
+  if (row.ownerFamilyId) fail(409, 'Somebody already holds that. You will have to take it.');
+
+  const district = districtById(def.districtId);
+  if (!familyOperatesIn(p.familyId, district.cityId))
+    fail(403, `Your family does not operate in ${cityById(district.cityId).name} yet.`);
+
+  const price = racketPrice(def, district);
+  spend(p, price, 'clean');
+  db.update('rackets', row.id, {
+    ownerFamilyId: p.familyId, ownerCrewId: p.crewId || null, takenAt: nowIso(),
+  });
+  db.log(p.id, 'racket', `Bought ${def.name} in ${district.name} for $${price.toLocaleString()}.`);
+  return { ok: true, player: selfPlayer(db.byId('players', p.id)) };
+});
+
+/**
+ * Taking a racket by force. This is the crew system's reason to exist — a lone
+ * soldier is heavily penalised and will lose to anything well defended.
+ */
+route('POST', '/rackets/takeover', ({ token, body }) => {
+  const p = currentPlayer(token);
+  requireFree(p);
+  if (!p.familyId) fail(403, 'You need a family behind you.');
+  if (rank(p.rankId).level < rank('soldier').level) fail(403, 'Only made men move on a racket.');
+
+  const def = racketById(body.racketId);
+  if (!def) fail(404, 'No such racket.');
+  const row = racketRow(def.id);
+  const district = districtById(def.districtId);
+
+  if (!row.ownerFamilyId) fail(409, 'Nobody holds that. Just buy it.');
+  if (String(row.ownerFamilyId) === String(p.familyId)) fail(409, 'You already hold that one.');
+  if (district.cityId !== p.cityId) fail(409, 'You are not in that city.');
+  if (district.id !== p.districtId) fail(409, 'You have to be standing in the district.');
+
+  if (row.takenAt && secsSince(row.takenAt) < CONFIG.RACKET_GRACE_SEC) {
+    const left = Math.round(CONFIG.RACKET_GRACE_SEC - secsSince(row.takenAt));
+    fail(429, `That racket changed hands too recently. ${left}s before it can be moved on again.`);
+  }
+
+  const cd = cooldownLeft(p.id, 'racket:takeover');
+  if (cd > 0) fail(429, `Your crew needs to regroup. ${cd}s.`);
+  if (p.nerve < CONFIG.RACKET_TAKEOVER_NERVE) fail(403, 'Not enough nerve.');
+
+  const crewSize = p.crewId ? db.filter('players', (x) => String(x.crewId) === String(p.crewId)).length : 0;
+  const defenders = defenderStrength(row);
+  const chance = takeoverChance({
+    attackerCrewSize: crewSize,
+    attackerSkill: p.skills?.combat ?? 0,
+    attackerRankLevel: rank(p.rankId).level,
+    racket: def,
+    defenderStrength: defenders,
+  });
+  const success = Math.random() < chance;
+
+  setCooldown(p.id, 'racket:takeover', CONFIG.RACKET_TAKEOVER_COOLDOWN_SEC);
+  const changes = {
+    nerve: p.nerve - CONFIG.RACKET_TAKEOVER_NERVE,
+    nerveAt: nowIso(),
+    heat: clamp(p.heat + CONFIG.RACKET_TAKEOVER_HEAT, 0, CONFIG.HEAT_MAX),
+  };
+
+  const previousOwner = db.byId('families', row.ownerFamilyId);
+
+  if (success) {
+    db.update('rackets', row.id, {
+      ownerFamilyId: p.familyId, ownerCrewId: p.crewId || null, takenAt: nowIso(),
+    });
+    changes.respect = p.respect + 120;
+    changes.skills = { ...p.skills, combat: Math.min(100, p.skills.combat + 2) };
+    db.log(p.id, 'racket', `Took ${def.name} from the ${previousOwner?.name} family.`);
+  } else {
+    changes.health = Math.max(5, p.health - CONFIG.RACKET_FAIL_DAMAGE);
+    db.log(p.id, 'racket', `Moved on ${def.name} and got turned back.`);
+  }
+
+  const updated = db.update('players', p.id, changes);
+  return {
+    success, chance, crewSize, defenders,
+    racket: { ...def, name: def.name },
+    previousOwner: previousOwner ? { id: previousOwner.id, name: previousOwner.name } : null,
+    message: success
+      ? `${def.name} belongs to the ${db.byId('families', p.familyId)?.name} family now.`
+      : `They were waiting for you at ${def.name}. You are hurt.`,
+    player: selfPlayer(updated),
+  };
+});
+
+// -------------------------------------------------------------- diplomacy --
+
+const diploPublic = (familyId) => {
+  const rows = db.all('diplomacy').filter(
+    (d) => String(d.familyA) === String(familyId) || String(d.familyB) === String(familyId)
+  );
+  return rows.map((d) => {
+    const otherId = String(d.familyA) === String(familyId) ? d.familyB : d.familyA;
+    return {
+      id: d.id,
+      state: d.state,
+      since: d.since,
+      family: db.byId('families', otherId),
+    };
+  });
+};
+
+route('GET', '/diplomacy', ({ token }) => {
+  const p = currentPlayer(token);
+  if (!p.familyId) return { relations: [], inbox: [], families: [] };
+  const mine = db.byId('families', p.familyId);
+  return {
+    family: mine,
+    relations: diploPublic(p.familyId),
+    warTargets: warTargets(p.familyId).map((f) => db.byId('families', f)).filter(Boolean),
+    // Every other family, with the current state, so a boss sees the whole board.
+    families: db.all('families')
+      .filter((f) => String(f.id) !== String(p.familyId))
+      .map((f) => ({ ...familyPublic(f), state: diploState(p.familyId, f.id) })),
+    inbox: db.filter('inbox', (m) => String(m.toFamilyId) === String(p.familyId) && m.status === 'pending')
+      .map((m) => ({
+        ...m,
+        fromFamily: db.byId('families', m.fromFamilyId),
+        fromPlayer: publicPlayer(db.byId('players', m.fromPlayerId)),
+      })),
+    sent: db.filter('inbox', (m) => String(m.fromFamilyId) === String(p.familyId) && m.status === 'pending')
+      .map((m) => ({ ...m, toFamily: db.byId('families', m.toFamilyId) })),
+  };
+});
+
+/** Proposing a state. War is declared rather than requested — see diplomacy.js. */
+route('POST', '/diplomacy/propose', ({ token, body }) => {
+  const p = currentPlayer(token);
+  const f = db.byId('families', p.familyId);
+  if (!f || String(f.bossId) !== String(p.id)) fail(403, 'Diplomacy is the boss\'s business.');
+  const other = db.byId('families', body.familyId);
+  if (!other) fail(404, 'No such family.');
+  if (String(other.id) === String(f.id)) fail(400, 'You are already yourself.');
+
+  const state = body.state;
+  if (![DIPLOMACY.NAP, DIPLOMACY.WAR, DIPLOMACY.ALLIED].includes(state))
+    fail(400, 'You can propose a pact, a war, or an alliance.');
+
+  const current = diploState(f.id, other.id);
+  if (current === state) fail(409, 'That is already where you stand.');
+
+  // Exclusive states allow exactly one partner each.
+  if (isExclusive(state)) {
+    const held = exclusivePartner(f.id, state);
+    if (held) {
+      const heldName = db.byId('families', held)?.name;
+      fail(409, `You already hold that with the ${heldName} family. End it first.`);
+    }
+    const theirs = exclusivePartner(other.id, state);
+    if (theirs) fail(409, `The ${other.name} family already has that arrangement elsewhere.`);
+  }
+
+  // Going to war while bound by a pact means tearing the pact up first.
+  if (state === DIPLOMACY.WAR && current === DIPLOMACY.NAP)
+    fail(409, 'You have a pact with them. Break it before you start shooting.');
+
+  if (!needsConsent(state)) {
+    // War: declared, not negotiated. The other boss is told, not asked.
+    setDiploState(f.id, other.id, state);
+    inboxSend(other.id, 'declaration', { state, familyName: f.name }, f.id, p.id);
+    db.log(p.id, 'diplomacy', `Went to the mattresses with the ${other.name} family.`);
+    return { ok: true, state, requiresConsent: false };
+  }
+
+  const existing = db.find('inbox', (m) =>
+    String(m.toFamilyId) === String(other.id) && String(m.fromFamilyId) === String(f.id) &&
+    m.status === 'pending' && m.payload?.state === state);
+  if (existing) fail(409, 'That offer is already on their desk.');
+
+  inboxSend(other.id, 'proposal', { state, familyName: f.name }, f.id, p.id);
+  return { ok: true, state, requiresConsent: true };
+});
+
+route('POST', '/diplomacy/respond', ({ token, body }) => {
+  const p = currentPlayer(token);
+  const f = db.byId('families', p.familyId);
+  if (!f || String(f.bossId) !== String(p.id)) fail(403, 'Only the boss answers.');
+  const msg = db.byId('inbox', body.messageId);
+  if (!msg || String(msg.toFamilyId) !== String(f.id)) fail(404, 'No such message.');
+  if (msg.status !== 'pending') fail(409, 'Already dealt with.');
+
+  const accept = !!body.accept;
+  db.update('inbox', msg.id, { status: accept ? 'accepted' : 'declined', respondedAt: nowIso() });
+  if (!accept) return { ok: true, accepted: false };
+
+  if (msg.type === 'proposal') {
+    const state = msg.payload.state;
+    if (isExclusive(state)) {
+      if (exclusivePartner(f.id, state)) fail(409, 'You have since taken that arrangement elsewhere.');
+      if (exclusivePartner(msg.fromFamilyId, state)) fail(409, 'They have since taken that arrangement elsewhere.');
+    }
+    setDiploState(f.id, msg.fromFamilyId, state);
+    return { ok: true, accepted: true, state };
+  }
+
+  if (msg.type === 'peace') {
+    // Terms: money out of the offering family's treasury, and rackets handed over.
+    const from = db.byId('families', msg.fromFamilyId);
+    const { money: cash = 0, racketIds = [] } = msg.payload || {};
+    const paid = Math.min(from?.treasuryClean ?? 0, cash);
+    if (from) db.update('families', from.id, { treasuryClean: from.treasuryClean - paid });
+    db.update('families', f.id, { treasuryClean: f.treasuryClean + paid });
+    racketIds.forEach((rid) => {
+      const row = db.find('rackets', (r) => r.racketId === rid);
+      if (row && String(row.ownerFamilyId) === String(from?.id)) {
+        db.update('rackets', row.id, { ownerFamilyId: f.id, ownerCrewId: null, takenAt: nowIso() });
+      }
+    });
+    setDiploState(f.id, msg.fromFamilyId, DIPLOMACY.NEUTRAL);
+    db.log(p.id, 'diplomacy', `Accepted terms from the ${from?.name} family. The war is over.`);
+    return { ok: true, accepted: true, paid, rackets: racketIds.length };
+  }
+
+  return { ok: true, accepted: true };
+});
+
+/** Walking away from a pact or an alliance. War needs terms, not a button. */
+route('POST', '/diplomacy/end', ({ token, body }) => {
+  const p = currentPlayer(token);
+  const f = db.byId('families', p.familyId);
+  if (!f || String(f.bossId) !== String(p.id)) fail(403, 'Only the boss ends an arrangement.');
+  const other = db.byId('families', body.familyId);
+  if (!other) fail(404, 'No such family.');
+  const row = diploRow(f.id, other.id);
+  if (!row) fail(409, 'You are already neutral with them.');
+
+  if (row.state === DIPLOMACY.WAR)
+    fail(409, 'A war does not end because you would like it to. Offer terms.');
+  if (secsSince(row.since) < CONFIG.DIPLOMACY_MIN_DURATION_SEC) {
+    const left = Math.round(CONFIG.DIPLOMACY_MIN_DURATION_SEC - secsSince(row.since));
+    fail(429, `Too soon after signing. ${left}s.`);
+  }
+
+  setDiploState(f.id, other.id, DIPLOMACY.NEUTRAL);
+  inboxSend(other.id, 'notice', { text: `The ${f.name} family has ended the arrangement.` }, f.id, p.id);
+  return { ok: true };
+});
+
+/** The peace offering menu: money and rackets, sent to the other boss. */
+route('POST', '/diplomacy/peace', ({ token, body }) => {
+  const p = currentPlayer(token);
+  const f = db.byId('families', p.familyId);
+  if (!f || String(f.bossId) !== String(p.id)) fail(403, 'Only the boss sues for peace.');
+  const other = db.byId('families', body.familyId);
+  if (!other) fail(404, 'No such family.');
+  if (diploState(f.id, other.id) !== DIPLOMACY.WAR) fail(409, 'You are not at war with them.');
+
+  const cash = Math.max(0, Math.floor(body.money || 0));
+  if (cash > f.treasuryClean) fail(402, 'Your treasury cannot cover that.');
+  const racketIds = (body.racketIds || []).filter((rid) => {
+    const row = db.find('rackets', (r) => r.racketId === rid);
+    return row && String(row.ownerFamilyId) === String(f.id);
+  });
+
+  inboxSend(other.id, 'peace', { money: cash, racketIds, familyName: f.name }, f.id, p.id);
+  return { ok: true, offered: { money: cash, rackets: racketIds.length } };
+});
+
 // -------------------------------------------------------------------- hits --
 
 route('GET', '/hits', ({ token }) => {
@@ -983,6 +1610,24 @@ route('POST', '/hits/:id/shooter', ({ token, params, body }) => {
   return db.update('hits', hit.id, { shooterId: shooter.id });
 });
 
+/** Shared kill resolution, used by both contract hits and wartime killings. */
+function resolveAssassination(shooter, target) {
+  const gun = equippedGun(shooter);
+  if (!gun) fail(403, 'You need a gun for that.');
+  const prop = target.insidePropertyId ? db.byId('properties', target.insidePropertyId) : null;
+
+  const atk = combatScore(shooter, {
+    gunAttack: gun.attack,
+    armourDefence: equippedArmour(shooter)?.defence ?? 0,
+  });
+  const def = combatScore(target, {
+    gunAttack: 0,
+    armourDefence: equippedArmour(target)?.defence ?? 0,
+    propertySafety: prop?.safety ?? 0,
+  });
+  return { success: atk > def, indoors: !!prop };
+}
+
 route('POST', '/hits/:id/execute', ({ token, params }) => {
   const p = currentPlayer(token);
   const hit = db.byId('hits', params.id);
@@ -991,25 +1636,13 @@ route('POST', '/hits/:id/execute', ({ token, params }) => {
   requireFree(p);
   const target = db.byId('players', hit.targetPlayerId);
   if (!target) fail(404, 'Target is gone.');
+  if (isDead(target)) fail(409, 'Somebody got there first.');
   if (target.cityId !== p.cityId) fail(409, 'They are in another city.');
 
-  const gun = equippedGun(p);
-  if (!gun) fail(403, 'You need a gun.');
-  const prop = target.insidePropertyId ? db.byId('properties', target.insidePropertyId) : null;
-
-  const atk = combatScore(p, { gunAttack: gun.attack, armourDefence: equippedArmour(p)?.defence ?? 0 });
-  const def = combatScore(target, {
-    gunAttack: 0,
-    armourDefence: 0,
-    propertySafety: prop?.safety ?? 0,
-  });
-  const success = atk > def;
+  const { success, indoors } = resolveAssassination(p, target);
 
   if (success) {
-    db.update('players', target.id, {
-      health: 10, dirty: 0, respect: Math.round(target.respect * (1 - CONFIG.DEATH_RESPECT_LOSS)),
-      insidePropertyId: null, heat: 0,
-    });
+    killPlayer(target, p, 'contract');
     db.update('players', p.id, {
       clean: p.clean + hit.bounty,
       respect: p.respect + 250,
@@ -1022,8 +1655,74 @@ route('POST', '/hits/:id/execute', ({ token, params }) => {
     db.update('hits', hit.id, { shooterId: null });
     db.log(p.id, 'hit', `The hit on ${target.username} went wrong.`);
   }
-  return { success, player: selfPlayer(db.byId('players', p.id)) };
+  return {
+    success, indoors, killed: success,
+    message: success
+      ? `${target.username} is gone. The contract pays $${hit.bounty.toLocaleString()}.`
+      : indoors
+        ? 'They were behind their own door and you could not get to them.'
+        : 'It went wrong. You are hurt and they know your face now.',
+    player: selfPlayer(db.byId('players', p.id)),
+  };
 });
+
+/**
+ * Wartime killing. No contract, no bounty, no permission — but only against a
+ * family you are at war with (or one your ally is at war with), and only if you
+ * are made.
+ */
+route('POST', '/combat/assassinate', ({ token, body }) => {
+  const p = currentPlayer(token);
+  requireFree(p);
+  const target = db.byId('players', body.targetPlayerId);
+  if (!target) fail(404, 'No such player.');
+  if (isDead(target)) fail(409, 'They are already dead.');
+  if (String(target.id) === String(p.id)) fail(400, 'No.');
+  if (target.cityId !== p.cityId || target.districtId !== p.districtId)
+    fail(409, 'They are not in this district.');
+  if (rank(p.rankId).level < rank('soldier').level)
+    fail(403, 'Only made men do this. Get made first.');
+  if (rank(target.rankId).level < rank('soldier').level)
+    fail(403, 'They are not made. Killing them is a contract job, not a war job.');
+  if (!mayFreelyAssassinate(p, target))
+    fail(403, 'You are not at war with their family. Your boss has to order that one.');
+
+  const cd = cooldownLeft(p.id, 'war:kill');
+  if (cd > 0) fail(429, `Too soon. ${cd}s.`);
+  setCooldown(p.id, 'war:kill', CONFIG.ASSASSINATION_COOLDOWN_HOURS * 3600);
+
+  const { success, indoors } = resolveAssassination(p, target);
+
+  if (success) {
+    killPlayer(target, p, 'war');
+    const fam = db.byId('families', p.familyId);
+    if (fam) db.update('families', fam.id, { respect: fam.respect + 200 });
+    db.update('players', p.id, {
+      respect: p.respect + 200,
+      heat: clamp(p.heat + 35, 0, CONFIG.HEAT_MAX),
+    });
+    db.log(p.id, 'war', `Killed ${target.username} in the war.`);
+  } else {
+    db.update('players', p.id, {
+      health: Math.max(5, p.health - 45),
+      heat: clamp(p.heat + 20, 0, CONFIG.HEAT_MAX),
+    });
+  }
+
+  return {
+    success, indoors, killed: success,
+    message: success
+      ? `${target.username} is gone.`
+      : indoors ? 'They were inside and you could not reach them.' : 'You missed, and now they know.',
+    player: selfPlayer(db.byId('players', p.id)),
+  };
+});
+
+route('GET', '/graves', () =>
+  db.all('graves').slice(-50).reverse().map((g) => ({
+    ...g,
+    family: g.familyId ? db.byId('families', g.familyId) : null,
+  })));
 
 // ------------------------------------------------------------------ combat --
 
@@ -1032,17 +1731,26 @@ route('POST', '/combat/attack', ({ token, body }) => {
   requireFree(p);
   const t = db.byId('players', body.targetPlayerId);
   if (!t) fail(404, 'No such player.');
+  if (isDead(t)) fail(409, 'They are dead already.');
+  if (String(t.id) === String(p.id)) fail(400, 'No.');
   if (t.cityId !== p.cityId || t.districtId !== p.districtId) fail(409, 'They are not in this district.');
+
+  // Anyone may attack and rob anyone — except across a non-aggression pact.
+  if (!mayAttack(p, t)) {
+    const other = db.byId('families', t.familyId);
+    fail(403, `Your family has a pact with the ${other?.name} family. Hands off.`);
+  }
+
   const gun = equippedGun(p);
   const prop = t.insidePropertyId ? db.byId('properties', t.insidePropertyId) : null;
 
   const atk = combatScore(p, { gunAttack: gun?.attack ?? 0, armourDefence: equippedArmour(p)?.defence ?? 0 });
-  const def = combatScore(t, { armourDefence: 0, propertySafety: prop?.safety ?? 0 });
+  const def = combatScore(t, { armourDefence: equippedArmour(t)?.defence ?? 0, propertySafety: prop?.safety ?? 0 });
   const win = atk > def;
 
   const damage = Math.round(20 + Math.random() * 40);
   if (win) {
-    const stolen = Math.round((t.dirty || 0) * 0.25);
+    const stolen = Math.round((t.dirty || 0) * CONFIG.MUGGING_TAKE);
     db.update('players', t.id, { health: Math.max(5, t.health - damage), dirty: (t.dirty || 0) - stolen });
     db.update('players', p.id, {
       dirty: p.dirty + stolen, respect: p.respect + 15,
@@ -1674,23 +2382,30 @@ route('GET', '/districts/:id', ({ params }) => {
   const d = districtById(params.id);
   if (!d) fail(404, 'No such district.');
   const councilOffice = db.find('offices', (o) => o.seat === 'district' && o.scopeId === d.id);
+  const rows = districtRackets(d.id);
+  const control = districtController(rows);
   return {
     ...d,
     city: cityById(d.cityId),
     councilman: publicPlayer(db.byId('players', councilOffice?.holderId)),
     department: db.find('departments', (x) => x.districtId === d.id) || null,
-    dominance: db.filter('dominance', (x) => x.districtId === d.id)
-      .map((x) => ({ ...x, family: db.byId('families', x.familyId) }))
-      .sort((a, b) => b.points - a.points),
-    playersHere: db.filter('players', (p) => p.districtId === d.id && !inJail(p)).map(publicPlayer),
+    control: {
+      ...control,
+      family: control.familyId ? db.byId('families', control.familyId) : null,
+      standings: (control.standings || []).map((s) => ({
+        ...s, family: db.byId('families', s.familyId),
+      })),
+    },
+    rackets: rows.map(racketPublic),
+    crews: db.filter('crews', (c) => c.districtId === d.id).map((c) => ({
+      ...c,
+      family: db.byId('families', c.familyId),
+      size: db.filter('players', (x) => String(x.crewId) === String(c.id)).length,
+    })),
+    playersHere: db.filter('players', (p) => p.districtId === d.id && !inJail(p) && !isDead(p)).map(publicPlayer),
     openCases: db.filter('cases', (c) => c.districtId === d.id && !c.solved).length,
   };
 });
-
-route('GET', '/districts/:id/dominance', ({ params }) =>
-  db.filter('dominance', (x) => x.districtId === params.id)
-    .map((x) => ({ ...x, family: db.byId('families', x.familyId) }))
-    .sort((a, b) => b.points - a.points));
 
 route('GET', '/cities/:id', ({ params }) => {
   const c = cityById(params.id);
@@ -1802,10 +2517,26 @@ route('POST', '/dev/run-weekly', ({ token }) => {
     }
   });
 
-  // 5. Territory decays if nobody works it.
-  db.all('dominance').forEach((d) => {
-    const decayed = Math.max(0, d.points - CONFIG.DOMINANCE_DECAY_PER_DAY * 7);
-    db.update('dominance', d.id, { points: decayed });
+  // 5. Racket income. Territory pays, and it pays dirty — which is the reason
+  //    laundering capacity matters once a family actually holds ground.
+  summary.racketIncome = 0;
+  db.all('rackets').forEach((row) => {
+    if (!row.ownerFamilyId) return;
+    const def = racketById(row.racketId);
+    const district = districtById(row.districtId);
+    if (!def || !district) return;
+    const income = racketIncome(def, district);
+    const fam = db.byId('families', row.ownerFamilyId);
+    if (!fam) return;
+    // A crew-held racket pays its captain; a family-held one pays the treasury.
+    const crew = row.ownerCrewId ? db.byId('crews', row.ownerCrewId) : null;
+    const captain = crew?.captainId ? db.byId('players', crew.captainId) : null;
+    if (captain && !captain.deadAt) {
+      db.update('players', captain.id, { dirty: captain.dirty + income });
+    } else {
+      db.update('families', fam.id, { treasuryDirty: fam.treasuryDirty + income });
+    }
+    summary.racketIncome += income;
   });
 
   return { ok: true, summary, player: selfPlayer(db.byId('players', currentPlayer(token).id)) };
