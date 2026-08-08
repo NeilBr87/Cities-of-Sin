@@ -1,70 +1,119 @@
-# Getting Started with Create React App
+# Cities of Sin
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A multiplayer browser RPG. Three cities, three ways up, and one economy all three fight
+over.
 
-## Available Scripts
+You arrive as nobody. You pick a life — **mafia**, **politician**, or **police** — and
+from there the game is about the other two. The mafia cannot reach its biggest scores
+without a politician awarding contracts. Politicians cannot fund campaigns without
+somebody dirty. Police get paid either way, by the city or by whoever is buying.
 
-In the project directory, you can run:
+There are only ever **five families**, and somebody already has four of them.
 
-### `npm start`
+---
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Running it
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+```bash
+npm install
+npm start
+```
 
-### `npm test`
+Open http://localhost:3000, sign up, name yourself, and pick a path.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+**It works with no backend.** The app ships with a complete in-browser mock server
+(`src/api/mock/`) that implements every rule and persists to `localStorage`. You can
+commit crimes, found a family, run for office, get arrested, bribe your way out and run
+the weekly economy without setting up anything.
 
-### `npm run build`
+To point it at a real backend, create `.env`:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```
+REACT_APP_XANO_BASE=https://your-instance.xano.io/api:your_group
+REACT_APP_ERA=seventies        # or nineties, or modern
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Nothing else changes. The mock and the real backend implement the same routes, and
+`src/api/client.js` picks between them on that one variable.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+---
 
-### `npm run eject`
+## Documentation
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+| Document | What is in it |
+|---|---|
+| **[docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)** | The full ruleset: paths, ranks, crime tiers, the money model, kick-ups, elections, prison. Also lists what is deliberately not built yet |
+| **[docs/XANO_SETUP.md](docs/XANO_SETUP.md)** | Step-by-step backend build: 21 table schemas, every endpoint's function stack, background tasks, realtime, and a security checklist. Written to be handed to a browser agent |
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+---
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## How it is put together
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+```
+src/
+  game/          Static game data and every formula. No React, no network.
+    era.js         The setting — 1979 / 1994 / 2026, switchable
+    world.js       3 cities, 18 districts, travel costs
+    ranks.js       The three paths and their ranks
+    crimes.js      3 tiers of crime + police actions
+    items.js       Guns, armour, vehicles, property, laundering fronts
+    economy.js     Every tunable number and every outcome formula
+  api/
+    index.js       The complete API surface — one function per endpoint
+    client.js      Picks mock or Xano based on one env variable
+    mock/          A full working backend in the browser
+  state/           Auth and player state
+  components/      Layout, chat, shared UI
+  pages/           One file per screen
+```
 
-## Learn More
+**`src/game/economy.js` is the specification.** The client uses it to predict outcomes
+so the UI can show real odds and grey out what you cannot afford. The server uses the
+same formulas to decide what actually happens. The server always wins — if they
+disagree, the client is the bug.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+**The mock backend is executable documentation.** Every authorisation rule in
+`src/api/mock/adapter.js` is a rule the real backend has to enforce too. When
+`XANO_SETUP.md` is ambiguous, that file is the answer.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+---
 
-### Code Splitting
+## A few decisions worth knowing about
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+**The era is configurable, not fixed.** The brief left the setting open between 1970 and
+modern, so it is one switch. It changes surveillance, forensics, whether wire transfers
+exist, and which items are on sale.
 
-### Analyzing the Bundle Size
+**Associates do not kick up.** The brief said captains collect from "soldiers and
+associates" but also that associates "don't kick up". The more specific rule won.
+`CONFIG.ASSOCIATES_KICK_UP` flips it.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+**Dirty money dies with you.** Clean money survives. That is the entire reason to
+launder, and the entire reason a boss with $2M dirty in a rented room is a target.
 
-### Making a Progressive Web App
+**Sentences are capped at 24 hours** regardless of what a President legislates.
+Otherwise the first hostile administration benches the whole mafia for a week.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+**Chat channels are derived from who you are**, never stored as memberships — so
+`family:3` cannot be read by guessing the number.
 
-### Advanced Configuration
+---
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+## Developer tools
 
-### Deployment
+When running on the mock backend, the dashboard has two buttons:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+- **Run the weekly tick** — fires the whole weekly economy immediately (salaries,
+  kick-ups, upkeep, laundering resets, interest, territory decay) so you can watch a
+  week of money movement in a second instead of waiting for a cron.
+- **Reset the world** — wipes `localStorage` and re-seeds.
 
-### `npm run build` fails to minify
+---
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+## Status
+
+The frontend is complete and playable end to end against the mock backend. The Xano
+backend is specified in full but not built — that is the next step, and
+`docs/XANO_SETUP.md` §12 has the build order that gets you to a playable server fastest.
+
+Known gaps are listed honestly at the end of `docs/GAME_DESIGN.md`.
