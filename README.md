@@ -1,70 +1,137 @@
-# Getting Started with Create React App
+# Cities of Sin
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A multiplayer browser RPG. Four cities, three ways up, and one economy all three fight
+over.
 
-## Available Scripts
+You arrive as nobody. You pick a life — **mafia**, **politician**, or **police** — and
+from there the game is about the other two. The mafia cannot reach its biggest scores
+without a politician awarding contracts. Politicians cannot fund campaigns without
+somebody dirty. Police get paid either way, by the city or by whoever is buying.
 
-In the project directory, you can run:
+Every district is a list of **rackets**, and whoever holds the most of them owns the
+place. There are **five family seats per city** and never a sixth.
 
-### `npm start`
+And death is permanent. If you are assassinated, that character is finished — you build
+a new one, and the only thing you keep is whatever you put in the **Quantum Bank**.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+---
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Running it
 
-### `npm test`
+```bash
+npm install
+npm start
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Open http://localhost:3000, sign up, name yourself, and pick a path.
 
-### `npm run build`
+**It works with no backend.** The app ships with a complete in-browser mock server
+(`src/api/mock/`) that implements every rule and persists to `localStorage`. You can
+commit crimes, found a family, run for office, get arrested, bribe your way out and run
+the weekly economy without setting up anything.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+To point it at a real backend, create `.env`:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```
+REACT_APP_XANO_BASE=https://your-instance.xano.io/api:your_group
+REACT_APP_ERA=seventies        # or nineties, or modern
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+Nothing else changes. The mock and the real backend implement the same routes, and
+`src/api/client.js` picks between them on that one variable.
 
-### `npm run eject`
+---
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Documentation
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+| Document | What is in it |
+|---|---|
+| **[docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)** | The full ruleset: paths, ranks, crime tiers, rackets and territory, diplomacy, the money model, kick-ups, elections, prison, permadeath. Also lists what is deliberately not built yet |
+| **[docs/XANO_SETUP.md](docs/XANO_SETUP.md)** | Step-by-step backend build: 25 table schemas, every endpoint's function stack, background tasks, realtime, and a security checklist. Written to be handed to a browser agent |
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+---
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## How it is put together
 
-## Learn More
+```
+src/
+  game/          Static game data and every formula. No React, no network.
+    era.js         The setting — 1979 / 1994 / 2026, switchable
+    world.js       4 cities, 24 districts, travel costs
+    ranks.js       The three paths and their ranks
+    crimes.js      3 tiers of crime + police actions
+    rackets.js     96 regionalised rackets and the takeover formula
+    diplomacy.js   Neutral / pact / war / allies and what each permits
+    items.js       Guns, armour, vehicles, property, laundering fronts
+    economy.js     Every tunable number and every outcome formula
+  api/
+    index.js       The complete API surface — one function per endpoint
+    client.js      Picks mock or Xano based on one env variable
+    mock/          A full working backend in the browser
+  state/           Auth and player state
+  components/      Layout, chat, shared UI
+  pages/           One file per screen
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+**`src/game/economy.js` is the specification.** The client uses it to predict outcomes
+so the UI can show real odds and grey out what you cannot afford. The server uses the
+same formulas to decide what actually happens. The server always wins — if they
+disagree, the client is the bug.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+**The mock backend is executable documentation.** Every authorisation rule in
+`src/api/mock/adapter.js` is a rule the real backend has to enforce too. When
+`XANO_SETUP.md` is ambiguous, that file is the answer.
 
-### Code Splitting
+---
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## A few decisions worth knowing about
 
-### Analyzing the Bundle Size
+**The era is configurable, not fixed.** The brief left the setting open between 1970 and
+modern, so it is one switch. It changes surveillance, forensics, whether wire transfers
+exist, and which items are on sale.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+**War is declared, not requested.** Pacts and alliances need the other boss to agree.
+War does not — the other boss is notified rather than asked, because a war you need
+permission to start is not a war. One flag in `diplomacy.js` reverses this.
 
-### Making a Progressive Web App
+**Solo racket takeovers carry an 18% flat penalty.** That single number is what makes
+crews matter. Without it, one rich player takes the whole map alone.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+**Racket income is paid dirty.** A family that takes a lot of ground immediately has a
+laundering problem, which turns wash capacity into the next thing worth fighting over.
 
-### Advanced Configuration
+**Associates do not kick up.** The brief said captains collect from "soldiers and
+associates" but also that associates "don't kick up". The more specific rule won.
+`CONFIG.ASSOCIATES_KICK_UP` flips it.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+**All of your money dies with you** — clean and dirty alike. The Quantum Bank is the
+only exception, and it charges 10% on the way in. That fee is the design: without it the
+vault is free insurance and nobody ever carries anything worth stealing.
 
-### Deployment
+**Sentences are capped at 24 hours** regardless of what a President legislates.
+Otherwise the first hostile administration benches the whole mafia for a week.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+**Chat channels are derived from who you are**, never stored as memberships — so
+`family:3` cannot be read by guessing the number.
 
-### `npm run build` fails to minify
+---
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+## Developer tools
+
+When running on the mock backend, the dashboard has two buttons:
+
+- **Run the weekly tick** — fires the whole weekly economy immediately (salaries,
+  kick-ups, racket income, upkeep, laundering resets, interest) so you can watch a
+  week of money movement in a second instead of waiting for a cron.
+- **Reset the world** — wipes `localStorage` and re-seeds.
+
+---
+
+## Status
+
+The frontend is complete and playable end to end against the mock backend — including a
+public landing page, the full racket and diplomacy systems, and the permadeath and
+respawn cycle. The Xano backend is specified in full but not built; `docs/XANO_SETUP.md`
+§12 has the build order that gets you to a playable server fastest.
+
+Known gaps are listed honestly at the end of `docs/GAME_DESIGN.md`.
