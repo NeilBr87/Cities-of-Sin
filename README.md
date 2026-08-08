@@ -40,6 +40,13 @@ REACT_APP_ERA=seventies        # or nineties, or modern
 Nothing else changes. The mock and the real backend implement the same routes, and
 `src/api/client.js` picks between them on that one variable.
 
+> **Do not upgrade `react-router-dom` to v7 while this project is on Create React App.**
+> In v7 the package is a shim whose whole body is `export * from "react-router"`, and
+> the webpack build inside `react-scripts@5` cannot always resolve named exports through
+> that re-export — you get `'Routes' is not exported from 'react-router-dom'` for every
+> import in the app. v6 re-exports each name explicitly, which webpack resolves fine.
+> If you want v7, move the build to Vite first.
+
 ---
 
 ## Documentation
