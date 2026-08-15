@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Field, Empty, Loading, Stat } from '../components/ui';
+import Avatar from '../components/Avatar';
 import { money, fullName, pct } from '../game/format';
 import { CONFIG, quantumDepositNet } from '../game/economy';
 
@@ -164,7 +165,8 @@ export default function Bank() {
           </div>
         ) : found.length === 0 ? <Empty>Search for someone to pay.</Empty> : found.slice(0, 6).map((f) => (
           <div className="list-row" key={f.id}>
-            <div style={{ flex: 1 }}>{fullName(f)} <span className="faint tiny">@{f.username}</span></div>
+            <Avatar player={f} size={30} />
+            <div style={{ flex: 1, minWidth: 0 }}>{fullName(f)} <span className="faint tiny">@{f.username}</span></div>
             <button className="btn-sm" onClick={() => setSend({ ...send, to: f, q: f.username })}>Choose</button>
           </div>
         ))}

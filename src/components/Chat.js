@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { Empty, Loading } from './ui';
+import Avatar from './Avatar';
 import { fullName, timeAgo } from '../game/format';
 
 /**
@@ -84,9 +85,12 @@ export default function Chat({ fixedChannel }) {
           {messages.length === 0 && <Empty>Nobody has said anything. Go first.</Empty>}
           {messages.map((m) => (
             <div className="chat-msg" key={m.id}>
-              <span className="who">{m.author ? fullName(m.author) : 'Someone'}</span>
-              <span className="when">{timeAgo(m.at)}</span>
-              <div>{m.text}</div>
+              <Avatar player={m.author} size={26} />
+              <div style={{ minWidth: 0 }}>
+                <span className="who">{m.author ? fullName(m.author) : 'Someone'}</span>
+                <span className="when">{timeAgo(m.at)}</span>
+                <div>{m.text}</div>
+              </div>
             </div>
           ))}
         </div>

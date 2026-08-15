@@ -2072,6 +2072,34 @@ route('POST', '/departments/:id/join', ({ token, params }) => {
   if (!dept) fail(404, 'No such department.');
   const changes = { departmentId: dept.id };
   if (p.rankId === 'rookie') changes.rankId = 'cop';
+
+  // Seniority fallback, per the brief: a chief is appointed by the ranking
+  // politician for the city, but if there is nobody in office to do the
+  // appointing, the seat goes to the first officer through the door. Without
+  // this a fresh world has no route to command at all — no chief, and no mayor
+  // to install one.
+  const cityHasChief = db.filter('players', (x) =>
+    x.rankId === 'chief' && x.cityId === dept.cityId && !x.deadAt).length > 0;
+  const cityHasPolitician = db.all('offices').some((o) => {
+    if (!o.holderId) return false;
+    if (o.seat === 'nation') return true;
+    if (o.seat === 'city') return o.scopeId === dept.cityId;
+    return districtById(o.scopeId)?.cityId === dept.cityId;
+  });
+  const deptHasLieutenant = !!dept.lieutenantId;
+
+  if (!cityHasChief && !cityHasPolitician) {
+    changes.rankId = 'chief';
+    changes.cityId = dept.cityId;
+    db.log(p.id, 'appointment', `No politician in ${cityById(dept.cityId).name} to appoint a chief. The seat went to the first badge through the door.`);
+  } else if (!deptHasLieutenant && changes.rankId !== 'chief') {
+    // Same logic one level down: an unstaffed department makes its first
+    // arrival the lieutenant, so districts are not permanently leaderless.
+    changes.rankId = 'lieutenant';
+    db.update('departments', dept.id, { lieutenantId: p.id });
+    db.log(p.id, 'appointment', `${dept.name} had no lieutenant. It is yours.`);
+  }
+
   return selfPlayer(db.update('players', p.id, changes));
 });
 

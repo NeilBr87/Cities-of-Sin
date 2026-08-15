@@ -34,7 +34,8 @@ To point it at a real backend, create `.env`:
 
 ```
 REACT_APP_XANO_BASE=https://your-instance.xano.io/api:your_group
-REACT_APP_ERA=seventies        # or nineties, or modern
+REACT_APP_ERA=seventies             # or nineties, or modern
+REACT_APP_SEED_POPULATION=false     # mock only — start with an unpopulated world
 ```
 
 Nothing else changes. The mock and the real backend implement the same routes, and
@@ -121,6 +122,12 @@ Otherwise the first hostile administration benches the whole mafia for a week.
 **Chat channels are derived from who you are**, never stored as memberships — so
 `family:3` cannot be read by guessing the number.
 
+**An empty world still has to be enterable.** With no NPCs there is no politician to
+appoint a police chief and nobody senior enough to promote anyone, so the first officer to
+join a department in a city with no chief and no sitting politician takes the seat, and the
+first into an unstaffed department becomes its lieutenant. That is the brief's "first come,
+first served" fallback, and without it the police path dead-ends at officer forever.
+
 ---
 
 ## Developer tools
@@ -131,6 +138,12 @@ When running on the mock backend, the dashboard has two buttons:
   kick-ups, racket income, upkeep, laundering resets, interest) so you can watch a
   week of money movement in a second instead of waiting for a cron.
 - **Reset the world** — wipes `localStorage` and re-seeds.
+
+**On the NPCs.** The mock seeds a populated world by default so a lone developer can tell
+a working game from a broken one. That is scaffolding, not design — every family and every
+name in one is meant to belong to a real player. Set `REACT_APP_SEED_POPULATION=false` to
+see a real launch: departments and election seats standing, all of them empty, no families
+at all. The Xano seed described in the docs never creates people.
 
 ---
 

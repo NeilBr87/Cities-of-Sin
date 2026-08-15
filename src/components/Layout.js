@@ -5,6 +5,7 @@ import { PATHS, rank } from '../game/ranks';
 import { cityById, districtById } from '../game/world';
 import { fullName, money, duration } from '../game/format';
 import { Meter, Badge, Alert } from './ui';
+import Avatar from './Avatar';
 import { CONFIG } from '../game/economy';
 import { USING_MOCK } from '../api/client';
 
@@ -83,6 +84,7 @@ export default function Layout({ children }) {
 
       <div className="main">
         <header className="topbar">
+          <Avatar player={me} size={40} />
           <div>
             <div className="faint tiny">{fullName(me)}</div>
             <div className="row" style={{ gap: 6 }}>

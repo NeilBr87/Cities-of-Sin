@@ -1,13 +1,34 @@
 /**
- * Seeds the mock world with enough NPCs, families, parties and departments that
- * a single developer logging in alone still sees a populated city.
+ * Seeds the mock world.
  *
- * The same data set is used by docs/XANO_SETUP.md as the suggested launch seed.
+ * THIS FILE IS MOCK-BACKEND ONLY. It is reached exclusively through
+ * store.js → adapter.js → client.js, and client.js only calls the mock when
+ * REACT_APP_XANO_BASE is unset. Nothing here ever runs against Xano.
+ *
+ * Two layers, and the difference matters:
+ *
+ *   Institutions — police departments, election offices and the law table.
+ *     ALWAYS seeded. These are the furniture of the world, not its population;
+ *     without them a police character has no department to join and there is no
+ *     seat to stand for. They are created empty — every office vacant, every
+ *     department unstaffed.
+ *
+ *   Population — NPC families, bosses, crews, parties, racket ownership and
+ *     diplomacy. Seeded only when SEED_POPULATION is on. Turn it off with
+ *     REACT_APP_SEED_POPULATION=false for a world where every family and every
+ *     name in it belongs to a real player.
  */
 
 import { DISTRICTS, CITIES } from '../../game/world';
 import { CONFIG } from '../../game/economy';
 import { ALL_RACKETS } from '../../game/rackets';
+
+/**
+ * Default on, because a lone developer poking at an empty world cannot tell a
+ * working game from a broken one. Set REACT_APP_SEED_POPULATION=false to see
+ * what a real launch looks like: institutions standing, nobody in them.
+ */
+export const SEED_POPULATION = process.env.REACT_APP_SEED_POPULATION !== 'false';
 
 const FIRST = ['Vito', 'Sal', 'Frankie', 'Angelo', 'Carmine', 'Rosa', 'Nadia', 'Gio', 'Marco', 'Dom',
   'Lena', 'Bobby', 'Tommy', 'Rita', 'Sonny', 'Vera', 'Nico', 'Joey', 'Gina', 'Paulie'];
@@ -25,6 +46,45 @@ export function seed(db, nextId) {
     db[table].push(r);
     return r;
   };
+
+  // ------------------------------------------------------------------------
+  // Institutions. Always seeded, always empty.
+  // ------------------------------------------------------------------------
+
+  // One department per district, with no lieutenant and nobody on the roster.
+  const deptNames = ['Precinct', 'Vice Division', 'Organised Crime Unit', 'Robbery Detail', 'Task Force'];
+  DISTRICTS.forEach((d, i) =>
+    mk('departments', {
+      name: `${d.name} ${pick(deptNames, i)}`,
+      districtId: d.id,
+      cityId: d.cityId,
+      lieutenantId: null,
+      motto: 'Serve. Protect. Collect.',
+      targetFamilyId: null,
+      budget: 80000,
+    })
+  );
+
+  // Every seat that exists, all of them vacant.
+  DISTRICTS.forEach((d) => mk('offices', { seat: 'district', scopeId: d.id, holderId: null, termEndsAt: inDays(CONFIG.TERM_DAYS.councilman) }));
+  CITIES.forEach((c) => mk('offices', { seat: 'city', scopeId: c.id, holderId: null, termEndsAt: inDays(CONFIG.TERM_DAYS.mayor) }));
+  mk('offices', { seat: 'nation', scopeId: 'nation', holderId: null, termEndsAt: inDays(CONFIG.TERM_DAYS.president) });
+
+  // Baseline federal law: everything illegal except gambling, no multipliers.
+  ['petty', 'violent', 'narcotics', 'racketeering', 'gambling'].forEach((cat) => {
+    mk('laws', { scope: 'nation', scopeId: 'nation', category: cat, sentenceMultiplier: 1, legal: cat === 'gambling' });
+  });
+
+  // Every racket exists and every one of them is unclaimed.
+  ALL_RACKETS.forEach((def) => {
+    mk('rackets', { racketId: def.id, districtId: def.districtId, ownerFamilyId: null, ownerCrewId: null, takenAt: null });
+  });
+
+  if (!SEED_POPULATION) return db;
+
+  // ------------------------------------------------------------------------
+  // Population. Everything below is scaffolding for solo development only.
+  // ------------------------------------------------------------------------
 
   // ---- Families ----
   // Five seats PER CITY. Each city is seeded with three, leaving two open
@@ -61,20 +121,6 @@ export function seed(db, nextId) {
     { name: 'Independence Bloc', motto: 'Nobody owns this seat.', logo: '★', colour: '#c9a227' },
   ];
   const parties = partySpecs.map((p) => mk('parties', { ...p, leaderId: null, treasury: 250000 }));
-
-  // ---- Police departments, one per district in each city ----
-  const deptNames = ['Precinct', 'Vice Division', 'Organised Crime Unit', 'Robbery Detail', 'Task Force'];
-  const departments = DISTRICTS.map((d, i) =>
-    mk('departments', {
-      name: `${d.name} ${pick(deptNames, i)}`,
-      districtId: d.id,
-      cityId: d.cityId,
-      lieutenantId: null,
-      motto: 'Serve. Protect. Collect.',
-      targetFamilyId: null,
-      budget: 80000,
-    })
-  );
 
   // ---- NPC players ----
   let n = 0;
@@ -163,7 +209,7 @@ export function seed(db, nextId) {
   CITIES.forEach((c) => {
     npc({ path: 'police', rankId: 'chief', cityId: c.id, familyId: null, clean: 200000 });
   });
-  departments.forEach((dept) => {
+  db.departments.forEach((dept) => {
     const lt = npc({ path: 'police', rankId: 'lieutenant', cityId: dept.cityId, districtId: dept.districtId, departmentId: dept.id });
     dept.lieutenantId = lt.id;
     for (let i = 0; i < 2; i++) {
@@ -171,47 +217,38 @@ export function seed(db, nextId) {
     }
   });
 
-  // Politicians: a sitting councilman per district, a mayor per city, one president.
+  // Politicians take the seats that were already created vacant above.
+  const seat = (s, scopeId) => db.offices.find((o) => o.seat === s && o.scopeId === scopeId);
   DISTRICTS.forEach((d, i) => {
     const p = npc({ path: 'politician', rankId: 'councilman', cityId: d.cityId, districtId: d.id, partyId: parties[i % parties.length].id });
-    mk('offices', { seat: 'district', scopeId: d.id, holderId: p.id, termEndsAt: inDays(CONFIG.TERM_DAYS.councilman) });
+    const office = seat('district', d.id);
+    if (office) office.holderId = p.id;
   });
   CITIES.forEach((c, i) => {
     const p = npc({ path: 'politician', rankId: 'mayor', cityId: c.id, partyId: parties[i % parties.length].id, clean: 400000 });
-    mk('offices', { seat: 'city', scopeId: c.id, holderId: p.id, termEndsAt: inDays(CONFIG.TERM_DAYS.mayor) });
+    const office = seat('city', c.id);
+    if (office) office.holderId = p.id;
   });
   const prez = npc({ path: 'politician', rankId: 'president', cityId: 'ny', partyId: parties[0].id, clean: 1500000 });
-  mk('offices', { seat: 'nation', scopeId: 'nation', holderId: prez.id, termEndsAt: inDays(CONFIG.TERM_DAYS.president) });
+  const national = seat('nation', 'nation');
+  if (national) national.holderId = prez.id;
 
-  parties.forEach((p, i) => { p.leaderId = db.players.filter((x) => x.partyId === p.id)[0]?.id ?? null; });
-
-  // ---- Law table: one row per crime-ish category, federal scope by default ----
-  ['petty', 'violent', 'narcotics', 'racketeering', 'gambling'].forEach((cat) => {
-    mk('laws', { scope: 'nation', scopeId: 'nation', category: cat, sentenceMultiplier: 1, legal: cat === 'gambling' });
-  });
+  parties.forEach((p) => { p.leaderId = db.players.filter((x) => x.partyId === p.id)[0]?.id ?? null; });
 
   // ---- Rackets ----
-  // Roughly two thirds of the world's rackets start held, so the map is alive
-  // but there is always something unclaimed to buy your way in with.
-  ALL_RACKETS.forEach((def, i) => {
-    const district = DISTRICTS.find((d) => d.id === def.districtId);
+  // The rows already exist and are unclaimed. Hand roughly two thirds of them
+  // to the local families so the map reads as alive, and leave the rest open.
+  db.rackets.forEach((row, i) => {
+    if (i % 3 === 0) return; // stays unclaimed
+    const district = DISTRICTS.find((d) => d.id === row.districtId);
     const localFamilies = families.filter((f) => f.cityId === district?.cityId);
-    const unclaimed = i % 3 === 0 || localFamilies.length === 0;
-    if (unclaimed) {
-      mk('rackets', { racketId: def.id, districtId: def.districtId, ownerFamilyId: null, ownerCrewId: null, takenAt: null });
-      return;
-    }
+    if (!localFamilies.length) return;
     const owner = localFamilies[i % localFamilies.length];
     const ownerCrew = db.crews.find(
-      (c) => String(c.familyId) === String(owner.id) && c.districtId === def.districtId
+      (c) => String(c.familyId) === String(owner.id) && c.districtId === row.districtId
     );
-    mk('rackets', {
-      racketId: def.id,
-      districtId: def.districtId,
-      ownerFamilyId: owner.id,
-      ownerCrewId: ownerCrew?.id ?? null,
-      takenAt: null,
-    });
+    row.ownerFamilyId = owner.id;
+    row.ownerCrewId = ownerCrew?.id ?? null;
   });
 
   // ---- Diplomacy ----

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Field, Empty, Loading, Badge, ConfirmButton, Tabs } from '../components/ui';
+import Avatar from '../components/Avatar';
 import { rank } from '../game/ranks';
 import { money, fullName } from '../game/format';
 import { CONFIG } from '../game/economy';
@@ -74,7 +75,8 @@ export default function Family() {
         <Card title={`Members (${members?.length ?? '…'})`}>
           {members === null ? <Loading /> : members.map((m) => (
             <div className="list-row" key={m.id}>
-              <div style={{ flex: 1 }}>
+              <Avatar player={m} />
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div>{fullName(m)} <span className="faint tiny">@{m.username}</span></div>
                 <div className="row" style={{ gap: 6, marginTop: 3 }}>
                   <Badge kind="mafia">{rank(m.rankId).label}</Badge>
@@ -267,7 +269,8 @@ export default function Family() {
               </div>
               {found.slice(0, 6).map((f) => (
                 <div className="list-row" key={f.id}>
-                  <div style={{ flex: 1 }}>{fullName(f)} <span className="faint tiny">@{f.username} · {rank(f.rankId).label}</span></div>
+                  <Avatar player={f} size={30} />
+                  <div style={{ flex: 1, minWidth: 0 }}>{fullName(f)} <span className="faint tiny">@{f.username} · {rank(f.rankId).label}</span></div>
                   <button className="btn-sm" onClick={() => act(() => api.hits.order(f.id, bounty), 'Contract opened.').then(load)}>
                     Put out the contract
                   </button>
