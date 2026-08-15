@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Field, Empty, Loading, Badge, ConfirmButton, Tabs } from '../components/ui';
+import Avatar from '../components/Avatar';
 import { money, fullName } from '../game/format';
 import { PATHS, rank } from '../game/ranks';
 import { CITIES, DISTRICTS } from '../game/world';
@@ -183,7 +184,8 @@ function DeptRoster({ deptId, onKick }) {
   if (!dept.officers?.length) return <Empty>Nobody assigned.</Empty>;
   return dept.officers.map((o) => (
     <div className="list-row" key={o.id}>
-      <div style={{ flex: 1 }}>
+      <Avatar player={o} size={30} />
+      <div style={{ flex: 1, minWidth: 0 }}>
         {fullName(o)} <span className="faint tiny">{rank(o.rankId).label}</span>
       </div>
       {o.rankId !== 'lieutenant' && (
@@ -201,7 +203,8 @@ function BribeList({ cityId, bribe, setBribe, act }) {
   if (!officers.length) return <Empty>No officers on the street here.</Empty>;
   return officers.slice(0, 15).map((o) => (
     <div className="list-row" key={o.id}>
-      <div style={{ flex: 1 }}>
+      <Avatar player={o} size={30} />
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div>{fullName(o)}</div>
         <div className="faint tiny">{rank(o.rankId).label}</div>
       </div>

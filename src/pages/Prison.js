@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Empty, Loading, Badge, Countdown } from '../components/ui';
+import Avatar from '../components/Avatar';
 import Chat from '../components/Chat';
 import { money, fullName, duration, pct } from '../game/format';
 import { rank } from '../game/ranks';
@@ -83,7 +84,8 @@ export default function Prison() {
         </div>
         {inmates.length === 0 ? <Empty>Nobody in the cells here.</Empty> : inmates.map((i) => (
           <div className="list-row" key={i.id}>
-            <div style={{ flex: 1 }}>
+            <Avatar player={i} />
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div>{fullName(i)} <span className="faint tiny">@{i.username}</span></div>
               <div className="row" style={{ gap: 6, marginTop: 3 }}>
                 <Badge kind={i.path}>{rank(i.rankId).label}</Badge>

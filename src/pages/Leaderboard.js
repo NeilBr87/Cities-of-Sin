@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 import { Card, Loading, Badge, Tabs, Empty } from '../components/ui';
+import Avatar from '../components/Avatar';
 import { fullName } from '../game/format';
 import { rank } from '../game/ranks';
 import { cityById } from '../game/world';
@@ -33,8 +34,9 @@ export default function Leaderboard() {
       <Card>
         {rows === null ? <Loading /> : rows.length === 0 ? <Empty>Nobody yet.</Empty> : rows.map((p, i) => (
           <div className="list-row" key={p.id}>
-            <span className="mono faint" style={{ width: 30 }}>{i + 1}</span>
-            <div style={{ flex: 1 }}>
+            <span className="mono faint" style={{ width: 26 }}>{i + 1}</span>
+            <Avatar player={p} size={32} />
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div>{fullName(p)} <span className="faint tiny">@{p.username}</span></div>
               <div className="row" style={{ gap: 6, marginTop: 3 }}>
                 <Badge kind={p.path}>{rank(p.rankId).label}</Badge>

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Empty, Loading, Badge, Countdown } from '../components/ui';
+import Avatar from '../components/Avatar';
 import { POLICE_ACTIONS } from '../game/crimes';
 import { money, fullName, pct } from '../game/format';
 import { CONFIG } from '../game/economy';
@@ -95,7 +96,8 @@ export default function Duty() {
         </p>
         {wanted.length === 0 ? <Empty>Nobody hot enough to touch. Investigate and raise some heat.</Empty> : wanted.map((w) => (
           <div className="list-row" key={w.id}>
-            <div style={{ flex: 1 }}>
+            <Avatar player={w} />
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div>{fullName(w)} <span className="faint tiny">@{w.username}</span></div>
               <div className="row" style={{ gap: 6, marginTop: 3 }}>
                 <Badge kind={w.path}>{rank(w.rankId).label}</Badge>

@@ -1069,29 +1069,46 @@ second gate, not a replacement for the visibility check.
 
 ## 10. Seeding
 
-`src/api/mock/seed.js` is the reference seed and is worth reproducing, because an empty
-world is a bad first impression — a new player should walk into a city that already has
-families, cops and a sitting mayor.
+**Seed institutions, not people.** Every family and every name in one should belong to a
+real player — an NPC boss occupying one of five seats in a city is a seat a player cannot
+have. So the launch seed creates the furniture of the world and leaves it empty:
 
-Create a one-off Xano task, run it once, then disable it:
+- **24 `departments`**, one per district, with `lieutenant_id` null and nobody assigned
+- **29 `offices`** (24 district + 4 city + 1 nation) with `holder_id` **null** — every
+  seat vacant and open to the first candidate
+- **5 `laws`** rows at `scope='nation'`, multiplier 1.0, all illegal except gambling
+- **96 `rackets`** rows, all with `owner_family_id` null — or create none and let
+  `fn_racket_row` make them lazily, which is simpler and equivalent
 
-- **12 families** — three per city, leaving two of the five seats open in every city so
-  a real player can always found one somewhere on day one
-- **3 parties**
-- **24 departments**, one per district
-- **~180 NPC players**: bosses, captains with crews (one crew per district), soldiers,
-  associates, loose hoodlums, 4 chiefs, 24 lieutenants, 48 officers, 24 councilmen,
-  4 mayors, 1 president
-- **29 offices** (24 district + 4 city + 1 nation) with the NPC holders seated
-- **Rackets**: leave roughly a third unclaimed so there is always something to buy into
-- **A little diplomacy already in play** — one war, one pact, one alliance — so the board
-  is not blank when the first real player arrives
-- **5 law rows** at `scope='nation'`, multiplier 1.0, all illegal except gambling
-- **2 open contracts** so tier-3 work is reachable immediately
-- **A handful of chat messages** in `global` and the city channels
+**Do not seed** families, parties, players, crews, diplomacy or racket ownership. There is
+no `is_npc` case to handle if there are no NPCs.
 
-Set `is_npc = true` on all seeded players. It costs nothing now and means you can
-exclude them from leaderboards later without a migration.
+### The bootstrapping problem this creates, and the fix
+
+An empty world has two dead ends, and both need the fallback rule from the brief
+("appointed by the highest ranking politician for the city; if there is none, promoted
+automatically, first come first served"):
+
+- **No chief, and no politician to appoint one.** In `POST /departments/{id}/join`, if the
+  city has no living chief *and* no office in that city (or the presidency) is held, the
+  joining officer becomes **chief** immediately.
+- **No lieutenant in a department.** If the department has no lieutenant, the joining
+  officer becomes **lieutenant** of it.
+
+Both are implemented in the mock's `/departments/{id}/join` — read that for the exact
+precedence. Without them a police character in a fresh world can never rise above officer,
+because every promotion path requires somebody who already outranks them.
+
+Politicians bootstrap themselves: `GET /elections` opens a race for every vacant seat, so
+the first staffer to stand and vote can take a councilman seat unopposed, and climb from
+there. The mafia bootstraps itself too — the first player with $2,500,000 clean founds a
+family. Nothing else needs to pre-exist.
+
+> The mock backend does seed a full population by default, because a lone developer
+> staring at an empty world cannot tell a working game from a broken one. That is
+> development scaffolding and nothing more — it lives in `src/api/mock/seed.js`, is
+> reachable only when `REACT_APP_XANO_BASE` is unset, and can be switched off with
+> `REACT_APP_SEED_POPULATION=false` to see exactly what a real launch looks like.
 
 ---
 

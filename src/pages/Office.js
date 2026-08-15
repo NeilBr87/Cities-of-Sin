@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Field, Empty, Loading, Badge, Tabs } from '../components/ui';
+import Avatar from '../components/Avatar';
 import { money, fullName } from '../game/format';
 import { rank } from '../game/ranks';
 import { CITIES, DISTRICTS, districtById } from '../game/world';
@@ -183,7 +184,8 @@ export default function Office() {
           </p>
           {inmates.length === 0 ? <Empty>The cells are empty.</Empty> : inmates.map((i) => (
             <div className="list-row" key={i.id}>
-              <div style={{ flex: 1 }}>
+              <Avatar player={i} />
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div>{fullName(i)} <span className="faint tiny">@{i.username}</span></div>
                 <div className="faint tiny">{rank(i.rankId).label} · {Math.round(i.secondsLeft / 60)}m left</div>
               </div>

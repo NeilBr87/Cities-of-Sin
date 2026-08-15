@@ -117,7 +117,7 @@ export default function Dashboard() {
       {USING_MOCK && (
         <Card title="Developer tools">
           <p className="faint tiny" style={{ marginTop: 0 }}>
-            The weekly economy — salaries, kick-ups, upkeep, interest and territory decay — runs on a
+            The weekly economy — salaries, kick-ups, racket income, upkeep and interest — runs on a
             cron in production. Fire it manually here to see the money move.
           </p>
           <div className="row">

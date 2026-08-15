@@ -10,7 +10,10 @@ import { cityById, CITIES } from '../game/world';
 export default function Families() {
   const { me, act } = useGame();
   const [data, setData] = useState(null);
-  const [cityFilter, setCityFilter] = useState('all');
+  // The page is scoped to one city at a time, and opens on the one you are
+  // standing in. Families are a city-level institution now — a global list
+  // mixes twenty families across four cities into noise.
+  const [cityId, setCityId] = useState(me?.cityId || 'ny');
   const [form, setForm] = useState({ name: '', motto: '', logo: '♠', colour: '#b4322c', cityId: me?.cityId || 'ny' });
 
   const load = useCallback(() => {
@@ -22,57 +25,72 @@ export default function Families() {
 
   const slotFor = (cityId) => data.citySlots.find((s) => s.cityId === cityId);
   const openSomewhere = data.citySlots.some((s) => s.remaining > 0);
-  const canFound = me?.path === PATHS.MAFIA && !me.familyId && openSomewhere;
-  const shown = cityFilter === 'all'
-    ? data.families
-    : data.families.filter((f) => f.cityId === cityFilter);
+  const canFound = me?.path === PATHS.MAFIA && !me.familyId;
+  const city = cityById(cityId);
+  const slots = slotFor(cityId);
+  const shown = data.families.filter((f) => f.cityId === cityId);
+  // Families headquartered elsewhere that have expanded into this city.
+  const visiting = data.families.filter(
+    (f) => f.cityId !== cityId && (f.cities || []).includes(cityId)
+  );
 
   return (
     <>
-      <h1>The Families</h1>
-      <p className="flavour" style={{ marginTop: -8 }}>
-        {data.maxPerCity} seats in every city, and never a sixth. A family starts in one city
-        and buys its way into the others.
-      </p>
+      <h1>The Families of {city?.name}</h1>
+      <p className="flavour" style={{ marginTop: -8 }}>{city?.tagline}</p>
 
-      <Card title="Seats by city">
-        <div className="grid grid-4">
-          {data.citySlots.map((s) => (
-            <div className="stat" key={s.cityId}>
-              <div className="stat-label">{s.cityName}</div>
-              <div className="stat-value">{s.used}/{data.maxPerCity}</div>
-              <div className={`faint tiny ${s.remaining > 0 ? 'money-clean' : ''}`}>
-                {s.remaining > 0 ? `${s.remaining} open` : 'full'}
-              </div>
+      <div className="row" style={{ marginBottom: 14 }}>
+        {CITIES.map((c) => {
+          const s = slotFor(c.id);
+          return (
+            <button
+              key={c.id}
+              className={`btn-sm ${cityId === c.id ? 'btn-brass' : ''}`}
+              onClick={() => setCityId(c.id)}
+            >
+              {c.name}
+              <span className="faint tiny" style={{ marginLeft: 6 }}>
+                {s ? `${s.used}/${data.maxPerCity}` : ''}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Card>
+        <div className="row-between">
+          <div>
+            <div className="stat-label">Seats at the table</div>
+            <div className="stat-value">{slots?.used ?? 0} of {data.maxPerCity} taken</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className={`stat-value ${slots?.remaining > 0 ? 'money' : 'heat'}`}>
+              {slots?.remaining > 0 ? `${slots.remaining} open` : 'Full'}
             </div>
-          ))}
+            <div className="faint tiny">
+              {slots?.remaining > 0
+                ? 'Somebody could found one today'
+                : 'A boss has to fall before anyone else sits down'}
+            </div>
+          </div>
         </div>
       </Card>
 
-      <div className="row" style={{ marginBottom: 14 }}>
-        <button className={`btn-sm ${cityFilter === 'all' ? 'btn-brass' : ''}`} onClick={() => setCityFilter('all')}>
-          All cities
-        </button>
-        {CITIES.map((c) => (
-          <button key={c.id} className={`btn-sm ${cityFilter === c.id ? 'btn-brass' : ''}`} onClick={() => setCityFilter(c.id)}>
-            {c.name}
-          </button>
-        ))}
-      </div>
-
       <div className="grid grid-2">
+        {shown.length === 0 && (
+          <Empty>Nobody has founded a family in {city?.name} yet. All {data.maxPerCity} seats are open.</Empty>
+        )}
         {shown.map((f) => (
           <Card key={f.id}>
             <div className="card-header">
               <h3 style={{ color: f.colour }}>{f.logo} {f.name}</h3>
-              <Badge>{cityById(f.cityId)?.short}</Badge>
+              <Badge>{f.racketCount} rackets</Badge>
             </div>
             <p className="flavour" style={{ marginTop: 0 }}>{f.motto || '—'}</p>
             <div className="row tiny muted">
               <span>Boss: <strong>{f.boss ? fullName(f.boss) : 'vacant'}</strong></span>
               <span>{f.memberCount} members</span>
               <span>{f.crews} crews</span>
-              <span>{f.racketCount} rackets</span>
             </div>
             {f.cities?.length > 1 && (
               <p className="faint tiny" style={{ marginTop: 6, marginBottom: 0 }}>
@@ -92,6 +110,26 @@ export default function Families() {
         ))}
       </div>
 
+      {visiting.length > 0 && (
+        <Card title={`Also operating in ${city?.name}`}>
+          <p className="faint tiny" style={{ marginTop: 0 }}>
+            Headquartered elsewhere, but they have paid to open here — so they can plant crews
+            and take rackets in this city too.
+          </p>
+          {visiting.map((f) => (
+            <div className="list-row" key={f.id}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: f.colour }}>{f.logo} {f.name}</div>
+                <div className="faint tiny">
+                  Out of {cityById(f.cityId)?.name} · {f.racketCount} rackets
+                </div>
+              </div>
+              <Badge>{cityById(f.cityId)?.short}</Badge>
+            </div>
+          ))}
+        </Card>
+      )}
+
       {me?.familyId && (
         <Card>
           <p className="faint tiny" style={{ margin: 0 }}>
@@ -103,21 +141,10 @@ export default function Families() {
       {canFound && (
         <Card title="Found your own family">
           <p className="faint tiny" style={{ marginTop: 0 }}>
-            First come, first served. It costs {money(CONFIG.FAMILY_FOUNDING_COST)} in clean money and makes you
+            You are taking one of <strong>{city?.name}</strong>'s {data.maxPerCity} seats — switch cities above
+            to found somewhere else. It costs {money(CONFIG.FAMILY_FOUNDING_COST)} in clean money and makes you
             boss immediately. You have {money(me.clean)}.
           </p>
-          <Field label="City">
-            <select value={form.cityId} onChange={(e) => setForm({ ...form, cityId: e.target.value })}>
-              {CITIES.map((c) => {
-                const s = slotFor(c.id);
-                return (
-                  <option key={c.id} value={c.id} disabled={!s || s.remaining === 0}>
-                    {c.name} — {s ? (s.remaining > 0 ? `${s.remaining} seat(s) open` : 'full') : ''}
-                  </option>
-                );
-              })}
-            </select>
-          </Field>
           <div className="grid grid-2">
             <Field label="Family name">
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={CONFIG.FAMILY_NAME_MAX} />
@@ -134,15 +161,17 @@ export default function Families() {
           </Field>
           <button
             className="btn-brass"
-            disabled={me.clean < CONFIG.FAMILY_FOUNDING_COST || form.name.length < 3 || (slotFor(form.cityId)?.remaining ?? 0) === 0}
-            onClick={() => act(() => api.families.create(form), `The ${form.name} family is yours.`).then(load)}
+            disabled={me.clean < CONFIG.FAMILY_FOUNDING_COST || form.name.length < 3 || (slots?.remaining ?? 0) === 0}
+            onClick={() => act(() => api.families.create({ ...form, cityId }), `The ${form.name} family is yours.`).then(load)}
           >
-            {me.clean < CONFIG.FAMILY_FOUNDING_COST ? 'Not enough clean money' : 'Found the family'}
+            {(slots?.remaining ?? 0) === 0 ? `${city?.name} is full`
+              : me.clean < CONFIG.FAMILY_FOUNDING_COST ? 'Not enough clean money'
+                : `Found the family in ${city?.name}`}
           </button>
         </Card>
       )}
 
-      {!canFound && me?.path === PATHS.MAFIA && !me.familyId && !openSomewhere && (
+      {me?.path === PATHS.MAFIA && !me.familyId && !openSomewhere && (
         <Card><Empty>Every seat in every city is occupied. Join one, or wait for a boss to fall.</Empty></Card>
       )}
     </>

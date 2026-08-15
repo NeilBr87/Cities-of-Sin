@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import { useGame } from '../state/GameContext';
 import { Card, Empty, Loading, Badge, Stat, ConfirmButton } from '../components/ui';
+import Avatar from '../components/Avatar';
 import { fullName, money } from '../game/format';
 import { rank } from '../game/ranks';
 import { districtsOf, cityById } from '../game/world';
@@ -150,7 +151,8 @@ export default function District() {
                 && String(p.id) !== String(me.id);
               return (
                 <div className="list-row" key={p.id}>
-                  <div style={{ flex: 1 }}>
+                  <Avatar player={p} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div>{fullName(p)} <span className="faint tiny">@{p.username}</span></div>
                     <div className="row" style={{ gap: 6, marginTop: 3 }}>
                       <Badge kind={p.path}>{rank(p.rankId).label}</Badge>

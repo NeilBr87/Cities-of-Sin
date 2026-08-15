@@ -1,31 +1,38 @@
-/* Cities of Sin — a dark, ink-and-brass palette. Everything is a token so the
-   whole game can be re-skinned per era or per city without touching components. */
+/* Cities of Sin — smoke, nicotine and dried blood.
+   Everything is a token so the whole game can be re-skinned per era or per city
+   without touching components.
+
+   The palette is deliberately warm-black rather than blue-black: cold greys read
+   as software, warm greys read as a room somebody has been smoking in. Corners
+   are square, dividers are dirty, and there is a grain layer over the whole
+   page — the three things that stop a dark UI looking like a dashboard. */
 
 :root {
-  --bg: #0d0c0f;
-  --bg-raised: #16151a;
-  --bg-sunken: #09080b;
-  --panel: #1b1a20;
-  --panel-2: #22212a;
-  --border: #2e2c37;
-  --border-bright: #423f4f;
+  --bg: #0b0a09;
+  --bg-raised: #131110;
+  --bg-sunken: #070605;
+  --panel: #171513;
+  --panel-2: #1f1c19;
+  --border: #2b2723;
+  --border-bright: #423b33;
 
-  --ink: #ece9f0;
-  --ink-dim: #a6a1b4;
-  --ink-faint: #6e6a7d;
+  --ink: #e8e3d9;
+  --ink-dim: #9c9287;
+  --ink-faint: #6a6157;
 
   --brass: #c9a227;
-  --brass-dim: #8a6f1b;
-  --blood: #b4322c;
-  --blood-dim: #7a221e;
-  --money: #4f9d69;
-  --dirty: #a8853a;
-  --badge: #3d7ea6;
+  --brass-dim: #7d631a;
+  --blood: #a82e26;
+  --blood-dim: #6d1d18;
+  --money: #6f9455;
+  --dirty: #b08331;
+  --badge: #3f7188;
   --violet: #7d5ba6;
 
-  --radius: 4px;
-  --radius-lg: 8px;
-  --shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  /* Square by default. A rounded corner is a friendly corner. */
+  --radius: 1px;
+  --radius-lg: 2px;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.7);
 
   --font-display: 'Times New Roman', Georgia, serif;
   --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -46,6 +53,31 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Film grain over everything. Two cheap repeating gradients rather than an
+   image, so it costs nothing and never 404s. pointer-events:none keeps it
+   from eating clicks. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: .5;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0 1px, transparent 1px 2px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,.05) 0 1px, transparent 1px 3px);
+}
+
+/* Vignette. The corners of the room are darker than the middle. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: radial-gradient(135% 105% at 50% 38%, transparent 62%, rgba(0,0,0,.38) 100%);
+}
+
 a { color: var(--brass); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -55,11 +87,31 @@ h1, h2, h3, h4 {
   letter-spacing: 0.01em;
   margin: 0 0 0.5em;
 }
-h1 { font-size: 30px; }
+h1 {
+  font-size: 32px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  /* Ink that did not take evenly on the press. */
+  text-shadow: 0 1px 0 rgba(0,0,0,.9);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
 h2 { font-size: 22px; }
 h3 { font-size: 17px; }
 
-hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+/* A torn edge rather than a ruled line. */
+hr {
+  border: none;
+  height: 1px;
+  margin: 18px 0;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--border) 0 14px,
+    transparent 14px 18px,
+    var(--border) 18px 40px,
+    transparent 40px 43px
+  );
+}
 
 /* ---------------------------------------------------------------- layout -- */
 
@@ -70,6 +122,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
   flex: 0 0 232px;
   background: var(--bg-sunken);
   border-right: 1px solid var(--border);
+  box-shadow: inset -14px 0 22px -18px #000;
   padding: 18px 12px;
   display: flex;
   flex-direction: column;
@@ -82,12 +135,15 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 
 .brand {
   font-family: var(--font-display);
-  font-size: 21px;
-  letter-spacing: 0.06em;
+  font-size: 22px;
+  letter-spacing: 0.08em;
   color: var(--brass);
   text-transform: uppercase;
-  padding: 0 10px 4px;
-  line-height: 1.15;
+  padding: 0 10px 10px;
+  line-height: 1.1;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  text-shadow: 0 2px 4px rgba(0,0,0,.8);
 }
 .brand small {
   display: block;
@@ -117,12 +173,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
   cursor: pointer;
   border: 1px solid transparent;
 }
+.nav-item {
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-size: 12px;
+}
 .nav-item:hover { background: var(--panel); color: var(--ink); text-decoration: none; }
 .nav-item.active {
   background: var(--panel-2);
-  color: var(--ink);
+  color: var(--brass);
   border-color: var(--border-bright);
-  box-shadow: inset 2px 0 0 var(--brass);
+  box-shadow: inset 3px 0 0 var(--blood);
 }
 .nav-item .badge-count {
   margin-left: auto;
@@ -134,8 +195,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 .topbar {
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border-bright);
+  background: linear-gradient(180deg, var(--bg-raised), var(--bg-sunken));
   padding: 10px 22px;
   display: flex;
   align-items: center;
@@ -151,13 +212,20 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 /* ----------------------------------------------------------------- cards -- */
 
 .card {
-  background: var(--panel);
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.018), transparent 120px),
+    var(--panel);
   border: 1px solid var(--border);
+  border-top-color: var(--border-bright);
   border-radius: var(--radius-lg);
   padding: 16px;
   box-shadow: var(--shadow);
 }
 .card + .card { margin-top: 14px; }
+/* ...but not inside a grid, where `gap` already handles spacing. Without this
+   every card after the first is nudged down and the row stops lining up. */
+.grid > .card + .card { margin-top: 0; }
 .card-header {
   display: flex;
   align-items: baseline;
@@ -192,12 +260,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
   text-transform: uppercase;
   color: var(--ink-faint);
 }
-.stat-value { font-family: var(--font-mono); font-size: 17px; }
+.stat-value { font-family: var(--font-mono); font-size: 17px; letter-spacing: -.01em; }
 .stat-value.money { color: var(--money); }
 .stat-value.dirty { color: var(--dirty); }
 .stat-value.heat { color: var(--blood); }
 
-.meter { height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+.meter { height: 7px; background: var(--bg-sunken); border-radius: 0; overflow: hidden; border: 1px solid var(--border); }
 .meter > span { display: block; height: 100%; background: var(--brass); transition: width .3s ease; }
 .meter.heat > span { background: var(--blood); }
 .meter.health > span { background: var(--money); }
@@ -207,22 +275,40 @@ hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 
 button, .btn {
   font-family: var(--font-body);
-  font-size: 14px;
-  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  padding: 9px 14px;
   border-radius: var(--radius);
   border: 1px solid var(--border-bright);
-  background: var(--panel-2);
-  color: var(--ink);
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  color: var(--ink-dim);
   cursor: pointer;
-  transition: background .12s ease, border-color .12s ease;
+  transition: background .1s ease, border-color .1s ease, color .1s ease;
 }
-button:hover:not(:disabled), .btn:hover { background: #2c2a35; border-color: var(--brass-dim); text-decoration: none; }
+button:hover:not(:disabled), .btn:hover {
+  background: #2b2621;
+  border-color: var(--brass-dim);
+  color: var(--ink);
+  text-decoration: none;
+}
+/* Buttons physically move when pressed. */
+button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 
-.btn-primary { background: var(--blood); border-color: var(--blood); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: #c73c35; border-color: #c73c35; }
-.btn-brass { background: var(--brass-dim); border-color: var(--brass); color: #17150c; font-weight: 600; }
-.btn-brass:hover:not(:disabled) { background: var(--brass); }
+.btn-primary {
+  background: linear-gradient(180deg, var(--blood), var(--blood-dim));
+  border-color: var(--blood-dim);
+  color: #f4ded9;
+}
+.btn-primary:hover:not(:disabled) { background: #bd352c; border-color: var(--blood); color: #fff; }
+.btn-brass {
+  background: linear-gradient(180deg, var(--brass), var(--brass-dim));
+  border-color: var(--brass);
+  color: #17150c;
+}
+.btn-brass:hover:not(:disabled) { background: #dcb32c; color: #100e08; }
 .btn-ghost { background: transparent; }
 .btn-sm { padding: 4px 9px; font-size: 12.5px; }
 .btn-block { width: 100%; }
@@ -235,7 +321,9 @@ input, select, textarea {
   padding: 8px 10px;
   background: var(--bg-sunken);
   border: 1px solid var(--border);
+  border-top-color: #000;
   border-radius: var(--radius);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.5);
   color: var(--ink);
   width: 100%;
 }
@@ -251,7 +339,7 @@ label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: 
   letter-spacing: .1em;
   text-transform: uppercase;
   padding: 2px 7px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--border-bright);
   color: var(--ink-dim);
   background: var(--bg-sunken);
@@ -267,10 +355,11 @@ label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: 
 .list-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 0;
+  gap: 11px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--border);
 }
+.list-row:hover { background: rgba(255,255,255,.012); }
 .list-row:last-child { border-bottom: none; }
 
 .muted { color: var(--ink-dim); }
@@ -284,14 +373,17 @@ label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: 
 
 .alert {
   border: 1px solid var(--border-bright);
-  border-left: 3px solid var(--brass);
-  background: var(--bg-sunken);
-  padding: 10px 13px;
+  border-left: 4px solid var(--brass);
+  background: linear-gradient(90deg, rgba(201,162,39,.06), transparent 40%), var(--bg-sunken);
+  padding: 11px 14px;
   border-radius: var(--radius);
   font-size: 14px;
   margin-bottom: 14px;
 }
-.alert.error { border-left-color: var(--blood); }
+.alert.error {
+  border-left-color: var(--blood);
+  background: linear-gradient(90deg, rgba(168,46,38,.1), transparent 40%), var(--bg-sunken);
+}
 .alert.good { border-left-color: var(--money); }
 
 /* ------------------------------------------------------------------ tabs -- */
@@ -300,9 +392,12 @@ label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: 
 .tab {
   padding: 8px 14px;
   cursor: pointer;
-  color: var(--ink-dim);
+  color: var(--ink-faint);
   border-bottom: 2px solid transparent;
-  font-size: 14px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  font-weight: 600;
 }
 .tab:hover { color: var(--ink); }
 .tab.active { color: var(--brass); border-bottom-color: var(--brass); }
@@ -311,7 +406,7 @@ label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: 
 
 .chat-wrap { display: flex; flex-direction: column; height: 460px; }
 .chat-log { flex: 1; overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 7px; }
-.chat-msg { font-size: 14px; line-height: 1.45; }
+.chat-msg { font-size: 14px; line-height: 1.45; display: flex; gap: 9px; align-items: flex-start; }
 .chat-msg .who { color: var(--brass); font-weight: 600; }
 .chat-msg .when { color: var(--ink-faint); font-size: 11px; margin-left: 6px; }
 .chat-form { display: flex; gap: 8px; margin-top: 10px; }
@@ -430,3 +525,37 @@ label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: var(--bg-sunken); }
 ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 5px; }
+
+/* --------------------------------------------------------------- avatars -- */
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1px;
+  border: 1px solid var(--border-bright);
+  object-fit: cover;
+  /* Mugshot, not profile photo: slightly desaturated and sunk into the page. */
+  filter: grayscale(.35) contrast(1.05);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, .6), 0 1px 3px rgba(0, 0, 0, .6);
+  flex: none;
+}
+
+.avatar-placeholder {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: rgba(255, 255, 255, .72);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+  user-select: none;
+}
+
+/* A dead player's picture goes flat and grey. */
+.avatar-dead { filter: grayscale(1) brightness(.5); }
+
+/* ------------------------------------------------------------- landing -- */
+
+.hero-title {
+  text-transform: uppercase;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, .9);
+}
