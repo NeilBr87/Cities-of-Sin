@@ -220,3 +220,66 @@ export interface BossVoteResult {
   eligible: number;
   needed?: number;
 }
+
+// ----------------------------------------------------------------- rackets --
+
+export interface Racket {
+  id: string;
+  type_id: string;
+  name: string;
+  blurb: string;
+  defence: number;
+  income: number;
+  price: number;
+  owner_family_id: string | null;
+  owner: { id: string; name: string; logo: string } | null;
+  owner_crew: string | null;
+  mine: boolean;
+  defenders: number;
+  grace_seconds: number;
+  chance: number;
+}
+
+export interface DistrictControl {
+  family_id: string | null;
+  contested: boolean;
+  held: number;
+  total: number;
+  standings: { family_id: string; name: string; logo: string; held: number }[];
+}
+
+export interface RacketListing {
+  district: { id: string; name: string; wealth: number; policing: number };
+  rackets: Racket[];
+  control: DistrictControl;
+  /** Family members standing in this district besides you — your muscle. */
+  backup: number;
+  can_act: boolean;
+  is_boss_or_captain: boolean;
+  nerve_cost: number;
+  treasury: number | null;
+}
+
+export interface TakeoverResult {
+  success: boolean;
+  chance: number;
+  backup: number;
+  defenders: number;
+  racket: string;
+  district: string;
+  heat_gained: number;
+  rackets: RacketListing;
+  me: Me;
+}
+
+export interface CityMap {
+  city_id: string;
+  districts: {
+    id: string;
+    name: string;
+    wealth: number;
+    policing: number;
+    here: boolean;
+    control: DistrictControl;
+  }[];
+}

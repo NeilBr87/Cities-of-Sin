@@ -12,6 +12,7 @@ const NAV = [
       { to: '/app', label: 'Dashboard', icon: '◆', end: true },
       { to: '/app/crimes', label: 'Crimes', icon: '✦' },
       { to: '/app/district', label: 'District', icon: '▣' },
+      { to: '/app/rackets', label: 'Rackets', icon: '◫' },
       { to: '/app/travel', label: 'Travel', icon: '✈' },
     ],
   },
@@ -40,7 +41,7 @@ const NAV = [
 ];
 
 // Shown greyed out so playtesters can see where this is going.
-const SOON = ['Rackets', 'Politics', 'Police'];
+const SOON = ['Politics', 'Police'];
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { me, signOut } = useSession();

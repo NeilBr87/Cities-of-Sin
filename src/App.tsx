@@ -13,6 +13,7 @@ import Crimes from './routes/Crimes';
 import District from './routes/District';
 import Families from './routes/Families';
 import Family from './routes/Family';
+import Rackets from './routes/Rackets';
 import Travel from './routes/Travel';
 import Bank from './routes/Bank';
 import Prison from './routes/Prison';
@@ -45,6 +46,7 @@ function Game() {
         <Route path="district" element={<District />} />
         <Route path="families" element={<Families />} />
         <Route path="family" element={<Family />} />
+        <Route path="rackets" element={<Rackets />} />
         <Route path="travel" element={<Travel />} />
         <Route path="bank" element={<Bank />} />
         <Route path="prison" element={<Prison />} />

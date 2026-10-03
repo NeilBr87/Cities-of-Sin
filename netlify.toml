@@ -1,0 +1,39 @@
+# Netlify deployment.
+#
+# The two environment variables are NOT set here — they belong in
+# Site configuration -> Environment variables, so the anon key is not committed:
+#   VITE_SUPABASE_URL
+#   VITE_SUPABASE_ANON_KEY
+#
+# Vite inlines them at BUILD time, so a changed value needs a fresh deploy.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Vite 6 wants Node 18+. Pin it so a Netlify default change cannot break a
+  # build that works locally.
+  NODE_VERSION = "20"
+
+# Single-page app fallback. Without this, Netlify looks for a file at
+# /app/crimes, finds nothing and serves its own 404 — so every deep link,
+# bookmark and hard refresh breaks while in-app navigation looks fine.
+# Status 200 (not 301) so React Router still sees the original URL.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Static assets are content-hashed by Vite, so they can be cached forever.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

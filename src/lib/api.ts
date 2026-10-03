@@ -9,8 +9,8 @@
 
 import { supabase } from './supabase';
 import type {
-  BossVoteResult, ChatMessage, City, Crime, CrimeResult, District, FamilyDetail,
-  FamilyListing, GameEvent, LeaderboardRow, LifePath, Me,
+  BossVoteResult, ChatMessage, City, CityMap, Crime, CrimeResult, District, FamilyDetail,
+  FamilyListing, GameEvent, LeaderboardRow, LifePath, Me, RacketListing, TakeoverResult,
 } from './types';
 
 /** Postgres RAISE messages arrive as `error.message`; surface them verbatim. */
@@ -254,6 +254,34 @@ export const families = {
     rpc<FamilyDetail>('kick_from_crew', { p_character_id: characterId }),
 };
 
+// ------------------------------------------------------------------ rackets --
+
+export const rackets = {
+  /** Omit the district for the one you are standing in. */
+  list: (districtId?: string) =>
+    rpc<RacketListing>('list_rackets', { p_district_id: districtId ?? null }),
+
+  /** Control of every district in a city. Omit for your current city. */
+  map: (cityId?: string) => rpc<CityMap>('city_map', { p_city_id: cityId ?? null }),
+
+  /** Unowned rackets only, paid from the family treasury. Boss or captain. */
+  buy: (racketId: string) => rpc<RacketListing>('buy_racket', { p_racket_id: racketId }),
+
+  /** By force. Made members only, and the odds depend on who is standing with you. */
+  take: (racketId: string) => rpc<TakeoverResult>('take_racket', { p_racket_id: racketId }),
+
+  async attempts(districtId: string, limit = 15) {
+    const { data, error } = await supabase
+      .from('racket_attempts')
+      .select('*')
+      .eq('district_id', districtId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  },
+};
+
 // -------------------------------------------------------------- leaderboard --
 
 export const leaderboard = {
@@ -261,5 +289,7 @@ export const leaderboard = {
     rpc<LeaderboardRow[]>('leaderboard', { p_metric: metric }),
 };
 
-const api = { auth, player, world, crimes, money, prison, chat, events, leaderboard, families };
+const api = {
+  auth, player, world, crimes, money, prison, chat, events, leaderboard, families, rackets,
+};
 export default api;

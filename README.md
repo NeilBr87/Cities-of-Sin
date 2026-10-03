@@ -170,9 +170,27 @@ associates. One crew per district, named for its captain. Making, promoting,
 demoting, kicking. Family treasury and expansion into other cities. Voting a boss
 down to soldier. The weekly ten-percent kick-up, on pg_cron.
 
-**M3** rackets and district control · **M4** combat, ordered hits, permadeath ·
-**M5** police work · **M6** parties, elections, laws, contracts · **M7** property,
-guns, vehicles, fronts, diplomacy.
+**M3 — territory** *(built)*
+Six regionalised rackets per city, instantiated into all twenty-four districts.
+Buy them with family money or take them by force — the odds are driven by how
+many of your people are standing in the district against how many of theirs.
+Whoever holds the most controls it; a tie reads as contested. Weekly income
+splits between the holding crew's captain and the family treasury.
+
+**M4** combat, ordered hits, permadeath · **M5** police work · **M6** parties,
+elections, laws, contracts · **M7** property, guns, vehicles, fronts, diplomacy.
+
+### The weekly economy needs pg_cron
+
+Two jobs drive all recurring money: `run_weekly_rackets()` (Mondays 02:55 UTC)
+and `run_weekly_kickup()` (03:00 UTC, five minutes later so racket income is
+taxed in the week it was earned). Both are idempotent per ISO week, so a retry
+or a manual trigger cannot double-charge anyone.
+
+They are scheduled by `20261003000003_schedule_crons.sql`, which **fails on
+purpose** if pg_cron is missing rather than being marked applied and leaving the
+economy silently frozen. Enable it under **Database → Extensions → pg_cron**,
+then `npm run db:push`.
 
 See [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) for the full design, and its
 final section for what is deliberately not built yet.

@@ -4,7 +4,7 @@ import { useCharacter, useSession } from '../state/SessionProvider';
 import { Badge, Card, Empty, Loading } from '../components/ui';
 import { nameOf } from '../lib/format';
 import { rankOf } from '../lib/ranks';
-import type { District as Dist } from '../lib/types';
+import type { CityMap, District as Dist } from '../lib/types';
 
 interface Occupant {
   id: string;
@@ -22,6 +22,7 @@ export default function District() {
   const { act } = useSession();
 
   const [districts, setDistricts] = useState<Dist[] | null>(null);
+  const [map, setMap] = useState<CityMap | null>(null);
   const [here, setHere] = useState<Occupant[] | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
 
@@ -35,6 +36,8 @@ export default function District() {
 
   useEffect(() => {
     api.world.districts(city.id).then(setDistricts).catch(() => setDistricts([]));
+    // Who holds what, so the map is a map and not just a list of names.
+    api.rackets.map(city.id).then(setMap).catch(() => setMap(null));
   }, [city.id]);
 
   useEffect(() => { void loadOccupants(); }, [loadOccupants]);
@@ -66,6 +69,7 @@ export default function District() {
                   <div className="crime-meta">
                     <span className="faint">Wealth <b>{d.wealth.toFixed(2)}×</b></span>
                     <span className="faint">Policing <b>{d.policing.toFixed(2)}×</b></span>
+                    <DistrictHolder map={map} districtId={d.id} />
                   </div>
                 </div>
                 <div className="crime-act">
@@ -130,5 +134,26 @@ export default function District() {
         </Card>
       </div>
     </>
+  );
+}
+
+/** Who runs a district, pulled from the city map. */
+function DistrictHolder({ map, districtId }: { map: CityMap | null; districtId: string }) {
+  const row = map?.districts.find((d) => d.id === districtId);
+  if (!row) return null;
+
+  const { control } = row;
+  if (control.contested) {
+    return <span className="faint">Control <b style={{ color: 'var(--blood)' }}>contested</b></span>;
+  }
+  if (!control.family_id) {
+    return <span className="faint">Control <b>open</b></span>;
+  }
+  const leader = control.standings[0];
+  return (
+    <span className="faint">
+      Run by <b style={{ color: 'var(--brass)' }}>{leader?.logo} {leader?.name}</b>{' '}
+      ({control.held}/{control.total})
+    </span>
   );
 }
