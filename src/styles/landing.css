@@ -1,0 +1,196 @@
+/* ===========================================================================
+   The landing page. Signed-out visitors only.
+   =========================================================================== */
+
+.lp { max-width: 1080px; margin: 0 auto; padding: 0 22px; }
+
+.lp-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 22px;
+  background: rgba(11, 10, 12, 0.9);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+
+/* --- hero ----------------------------------------------------------------- */
+
+.lp-hero {
+  position: relative;
+  padding: 92px 0 76px;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* A slow brass wash behind the headline. Two radial gradients, no images. */
+.lp-hero::before {
+  content: '';
+  position: absolute;
+  inset: -40% -20% auto;
+  height: 620px;
+  background:
+    radial-gradient(ellipse 60% 50% at 30% 40%, rgba(212, 169, 53, 0.10), transparent 70%),
+    radial-gradient(ellipse 50% 45% at 72% 55%, rgba(199, 59, 50, 0.09), transparent 70%);
+  pointer-events: none;
+}
+
+.lp-eyebrow {
+  position: relative;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.34em;
+  color: var(--brass);
+  margin-bottom: 20px;
+}
+
+.lp-title {
+  position: relative;
+  font-family: var(--font-display);
+  font-size: clamp(56px, 12vw, 124px);
+  font-weight: 700;
+  line-height: 0.88;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  margin: 0 0 22px;
+}
+.lp-title em {
+  display: block;
+  font-style: normal;
+  color: var(--brass);
+}
+
+.lp-lede {
+  position: relative;
+  max-width: 620px;
+  margin: 0 auto 32px;
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--ink-dim);
+}
+
+.lp-cta { position: relative; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+.lp-trust {
+  position: relative;
+  margin-top: 26px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* --- sections ------------------------------------------------------------- */
+
+.lp-section { padding: 66px 0; border-top: 1px solid var(--line); }
+
+.lp-section-head { max-width: 660px; margin-bottom: 34px; }
+.lp-section-head h2 {
+  font-size: clamp(28px, 4vw, 40px);
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  margin-bottom: 10px;
+}
+.lp-section-head p { color: var(--ink-dim); font-size: 15px; margin: 0; }
+
+/* --- paths ---------------------------------------------------------------- */
+
+.lp-paths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+
+.lp-path {
+  position: relative;
+  padding: 24px 22px 26px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top-width: 3px;
+  border-radius: var(--r);
+}
+.lp-path.mafia      { border-top-color: var(--path-mafia); }
+.lp-path.politician { border-top-color: var(--path-politician); }
+.lp-path.police     { border-top-color: var(--path-police); }
+
+.lp-path h3 {
+  font-size: 26px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.lp-path .lp-path-tag {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--brass);
+  margin-bottom: 12px;
+}
+.lp-path p { font-size: 14px; color: var(--ink-dim); margin: 0; }
+
+/* --- cities --------------------------------------------------------------- */
+
+.lp-cities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+
+.lp-city {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.lp-city .code {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 0.9;
+  color: var(--line-bright);
+}
+.lp-city h4 { font-size: 20px; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px; }
+.lp-city .tag { font-family: var(--font-display); font-style: italic; color: var(--brass); font-size: 15px; margin-bottom: 8px; }
+.lp-city p { font-size: 13px; color: var(--ink-dim); margin: 0; }
+
+/* --- rules ---------------------------------------------------------------- */
+
+.lp-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 40px; }
+.lp-rule { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; }
+.lp-rule .n {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--brass);
+  padding-top: 3px;
+}
+.lp-rule h4 { font-size: 17px; margin-bottom: 4px; }
+.lp-rule p { font-size: 14px; color: var(--ink-dim); margin: 0; }
+
+/* --- closer --------------------------------------------------------------- */
+
+.lp-closer { padding: 80px 0 96px; text-align: center; border-top: 1px solid var(--line); }
+.lp-closer h2 {
+  font-size: clamp(30px, 5vw, 48px);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.lp-closer p { color: var(--ink-dim); max-width: 480px; margin: 0 auto 26px; }
+
+.lp-foot {
+  padding: 22px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+@media (max-width: 860px) {
+  .lp-paths, .lp-cities, .lp-rules { grid-template-columns: 1fr; }
+  .lp-hero { padding: 60px 0 52px; }
+  .lp-section { padding: 48px 0; }
+}

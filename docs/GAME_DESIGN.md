@@ -385,22 +385,43 @@ cost and the decision of *how much* to protect is the interesting one.
 
 ---
 
-## 13. What is deliberately not built yet
+## 13. What is built, and what is not
 
-Called out honestly rather than left as a surprise:
+This document describes the whole game. The code currently implements the first
+slice of it. Kept honest here rather than left as a surprise.
 
-- **Elections do not auto-close.** The endpoints to stand, campaign and vote all work,
-  and terms have end dates, but the cron that closes a race and seats the winner is
-  specified in `XANO_SETUP.md` §7 and not implemented in the mock.
-- **Peace offers do not expire.** `PEACE_OFFER_EXPIRY_HOURS` exists in config and is not
-  yet enforced by a cron.
-- **Rackets have no active defence.** Defenders raise the difficulty by existing, but a
-  defending crew cannot be alerted or choose to reinforce.
-- **Crew jobs are announcements, not multi-player instances.** `POST /crews/jobs` records
-  the job and the crew can see it; a real "everyone joins, then it resolves together"
-  flow needs a job state machine.
-- **Chat polls every 5 seconds.** Swap for Xano Realtime — §8 of the setup guide is a
-  drop-in replacement.
-- **Chief-by-seniority fallback** is specified but only the appointment path is coded.
-- **NPCs do not act.** The seed populates the world so it is not empty, but the NPCs
-  never commit crimes or make arrests on their own.
+### Built and playable (M1)
+
+Accounts and one living character per account · character creation with path and
+city · the four cities and twenty-four districts · movement within a city and
+flights between cities · tier 1 and tier 2 crimes with live odds, cooldowns,
+nerve, heat and variance · arrest and prison with bail · dirty/clean money and
+laundering · the vault · realtime chat scoped to global, city, district and the
+prison block · the activity feed · leaderboards · public profiles and rap sheets.
+
+### Not built yet
+
+- **Families, crews and the kick-up.** The rank ladder exists as data; the
+  hierarchy, the weekly cron and the treasury do not. *(M2)*
+- **Rackets and territory.** Districts have wealth and policing multipliers but
+  nobody can own one. *(M3)*
+- **Combat, hits and permadeath.** `characters.died_at` and `immune_until` exist
+  and nothing writes to them yet. The vault already survives, because the schema
+  was built for it from the start. *(M4)*
+- **Police work.** The path is choosable and pays nothing; investigations,
+  arrests-by-player and bribes are not written. *(M5)*
+- **Politics and elections.** No parties, no seats, no ballots, no laws. Crime
+  sentences currently come from a fixed number rather than from a law a
+  President set. *(M6)*
+- **Property, guns, vehicles, fronts and diplomacy.** *(M7)*
+
+### Known design debts
+
+- **Salaries are unpaid.** Politician and police ranks list wages in the design
+  but no cron pays them, so those two paths currently have no income at all. This
+  is the strongest reason not to open signups to the police and politician paths
+  before M5.
+- **Tier 3 crimes are unseeded.** They are contract-gated, and contracts need
+  politicians, so seeding them now would be dead content.
+- **Laundering has no fronts.** The rate is a flat 60% with a daily cap, which is
+  deliberately punishing until owning a front can improve it.

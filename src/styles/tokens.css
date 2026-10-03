@@ -1,0 +1,143 @@
+/* ===========================================================================
+   Cities of Sin — design tokens.
+
+   The look: near-black ground, hairline borders, brass and blood as the only
+   two accents, and a condensed display face doing the shouting. Numbers are
+   always monospaced so money lines up in a column. Grit comes from texture and
+   type weight, never from drop shadows or gold gradients.
+   =========================================================================== */
+
+:root {
+  /* --- ground ------------------------------------------------------------ */
+  --bg:            #0b0a0c;
+  --bg-sunken:     #070609;
+  --panel:         #131216;
+  --panel-raised:  #1a181e;
+  --panel-hover:   #201d26;
+
+  /* --- lines ------------------------------------------------------------- */
+  --line:          #262430;
+  --line-bright:   #3b3849;
+  --line-hot:      #4a3520;
+
+  /* --- ink --------------------------------------------------------------- */
+  --ink:           #ece9f0;
+  --ink-dim:       #a09aae;
+  --ink-faint:     #676176;
+
+  /* --- accents ----------------------------------------------------------- */
+  --brass:         #d4a935;
+  --brass-dim:     #8c6f1e;
+  --brass-glow:    rgba(212, 169, 53, 0.12);
+  --blood:         #c73b32;
+  --blood-dim:     #7d221c;
+  --blood-glow:    rgba(199, 59, 50, 0.12);
+
+  /* --- semantic ---------------------------------------------------------- */
+  --clean:         #4f9d69;
+  --dirty:         #b08d3e;
+  --heat:          #d4622f;
+  --nerve:         #5f8fc4;
+  --health:        #9c5fc4;
+
+  --path-mafia:      #c73b32;
+  --path-politician: #7d6bc4;
+  --path-police:     #3d7ea6;
+
+  /* --- type -------------------------------------------------------------- */
+  --font-display: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --font-body:    'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+
+  /* --- geometry ---------------------------------------------------------- */
+  --r-sm: 2px;
+  --r:    3px;
+  --r-lg: 6px;
+
+  --shadow:      0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-lift: 0 8px 32px rgba(0, 0, 0, 0.7);
+
+  --sidebar-w: 232px;
+  --topbar-h:  58px;
+
+  color-scheme: dark;
+}
+
+/* --- reset ---------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* A film-grain wash over the whole page at 3.5%. This is the single biggest
+   contributor to "gritty" and it costs one element and no images. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.005em;
+  margin: 0 0 0.4em;
+}
+
+h1 { font-size: 34px; letter-spacing: -0.01em; }
+h2 { font-size: 25px; }
+h3 { font-size: 18px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-dim); }
+h4 { font-size: 15px; }
+
+p { margin: 0 0 1em; }
+p:last-child { margin-bottom: 0; }
+
+a {
+  color: var(--brass);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.12s;
+}
+a:hover { border-bottom-color: var(--brass-dim); }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 16px 0;
+}
+
+::selection { background: var(--brass-dim); color: #000; }
+
+/* Scrollbars, so they don't break the dark ground. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-bright) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--bg);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--line-bright); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
